@@ -143,6 +143,50 @@ python -m jobhunt serve --port 8010
 Other commands: `build_exe.cmd` builds the exe. `schedule_daily.ps1` registers the 12-hour refresh.
 `python -m unittest discover -s tests -t .` runs the tests.
 
+## How the desktop app is built
+
+JobQuest.AI is a FastAPI web app packaged as a native-feeling Windows program.
+
+**1. One-file exe (PyInstaller).** `build_exe.cmd` runs these steps:
+- `packaging/make_icon.py` draws the skyscraper icon with Pillow and writes `jobquestai.ico`.
+- `python -m PyInstaller --onefile --noconsole --name JobQuestAI` bundles the Python runtime, FastAPI, Uvicorn and every
+  library into a single `JobQuestAI.exe` (about 34 MB).
+- `--add-data` packs the web UI (`jobhunt/static`) and `config.toml` inside it, and `--collect-submodules uvicorn` keeps the
+  server's dynamic imports.
+- `packaging/launcher.py` is the entry point.
+
+**2. What happens on launch** (`jobhunt/desktop.py`):
+- The exe starts the FastAPI server with Uvicorn in a background thread on `127.0.0.1:8000`, listening locally only.
+- It opens **Microsoft Edge in app mode** (`--app=...`) with its own profile, giving a clean window with no tabs or address bar.
+- It waits on that window, and closing it stops the server. If a window from an earlier run is still open, it keeps
+  serving until that one closes too.
+- A background thread runs the 12-hour job refresh, the Gmail check and the daily-target reminders (Windows toasts).
+- All data stays in `%USERPROFILE%\.jobhuntai`, outside the exe: the SQLite database, resumes, API keys and backups. So
+  rebuilding or reinstalling never loses anything.
+
+**3. Installer (Inno Setup).** `build_installer.cmd` compiles `packaging/installer.iss` into
+`dist\JobQuestAI-Setup-<version>.exe`, which:
+- installs per user with no admin prompt into `%LOCALAPPDATA%\Programs\JobQuest.AI`;
+- adds Start menu and optional Desktop shortcuts;
+- can optionally register the 09:00 / 21:00 job search as a scheduled task;
+- adds a normal uninstaller (*Settings → Apps*) that leaves your data folder alone.
+
+```mermaid
+flowchart LR
+  SRC["Python source<br/>jobhunt/ + static UI"] -->|PyInstaller --onefile| EXE["JobQuestAI.exe"]
+  ICON["make_icon.py → .ico"] --> EXE
+  EXE -->|Inno Setup| SETUP["JobQuestAI-Setup.exe"]
+  EXE -->|on launch| SRV["Uvicorn + FastAPI<br/>127.0.0.1:8000"]
+  EXE -->|on launch| WIN["Edge --app window"]
+  SRV --> DATA[("%USERPROFILE%\.jobhuntai<br/>SQLite, resumes, keys")]
+```
+
+Rebuild after a code change:
+```bash
+build_exe.cmd
+build_installer.cmd
+```
+
 ## Privacy and fair use
 
 - Everything runs on your PC. Keys, the database, resumes and backups live in `~/.jobhuntai`, outside the repo,
