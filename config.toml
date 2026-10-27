@@ -1,0 +1,109 @@
+# JobQuest.AI settings. Your OpenAI key does NOT go here: add it on the Settings page (it is saved to
+# C:\Users\<you>\.jobhuntai\.env, outside OneDrive) or put OPENAI_API_KEY in that .env yourself.
+
+[search]
+days = 14                     # keep postings first published in the last N days
+max_years = 2                 # entry level: postings asking for 3+ years are dropped
+roles = ["SDE", "ML"]         # ML also covers AI, data science and data engineering
+include_internships = true
+
+[ai]
+model = "gpt-6-luna"          # OpenAI's lowest-cost current text model; any chat model ID works
+reasoning_effort = "low"      # none | minimal | low | medium | high; dropped automatically if the model rejects it
+max_jobs_per_refresh = 150    # cap on AI job checks per refresh (each posting is checked once, then cached)
+concurrency = 4
+# USD per 1M tokens (input, output), used only to show running cost. Update if OpenAI changes prices.
+prices = { "gpt-6-luna" = [0.10, 0.50], "gpt-6.1-sol" = [2.0, 10.0], "gpt-6-astra" = [10.0, 50.0] }
+
+[server]
+port = 8000
+auto_refresh_hours = 12      # opening the app starts a search if the last one is older than this
+
+[sources]
+# Turn whole sources on/off. Keyed sources switch on by themselves once a key is configured.
+greenhouse = true
+lever = true
+ashby = true
+smartrecruiters = true
+workday = true
+amazon = true
+himalayas = false             # off: links go to Himalayas (behind a bot check), not the company, and many listings are low quality
+adzuna = true
+jsearch = true
+jooble = true
+
+[companies]
+# Company boards with openings in India, all checked to respond on 2026-10-15.
+# Format: "board-token" or "board-token|Display Name". Add more by finding the token in a company's
+# careers URL: boards.greenhouse.io/<token>, jobs.lever.co/<token>, jobs.ashbyhq.com/<token>,
+# jobs.smartrecruiters.com/<CompanyId>.
+greenhouse = [
+  "stripe", "databricks", "rubrik", "groww", "mongodb", "okta", "gitlab", "elastic", "twilio", "coinbase",
+  "datadog", "airbnb", "hackerrank|HackerRank", "druva", "toast", "samsara", "zscaler", "purestorage|Pure Storage",
+  "netskope", "harnessinc|Harness", "razorpaysoftwareprivatelimited|Razorpay", "turing", "cloudflare", "agoda",
+  "commvault", "coursera", "devrev|DevRev", "fivetran", "glance", "highradius|HighRadius", "imc|IMC Trading",
+  "inmobi|InMobi", "mixpanel", "newrelic|New Relic", "observeai|Observe.AI", "saucelabs|Sauce Labs", "sigmoid",
+  "falconx|FalconX", "fastly", "contentstack", "sumologic|Sumo Logic",
+  "stage|STAGE", "thoughtworks|Thoughtworks", "towerresearchcapital|Tower Research Capital", "gravitonresearchcapital|Graviton Research Capital", "squarepointcapital|Squarepoint Capital", "jumptrading|Jump Trading", "worldquant|WorldQuant", "rockstargames|Rockstar Games", "binance|Binance", "anthropic|Anthropic", "scaleai|Scale AI",
+  "cockroachlabs|Cockroach Labs", "figma|Figma", "grafanalabs|Grafana Labs", "starburst|Starburst", "vercel|Vercel", "yugabyte|Yugabyte",  # added 2026-10-27: US scale-ups with India roles
+]
+lever = [
+  "cred|CRED", "meesho", "zeta", "paytm", "mindtickle", "pocketfm|Pocket FM", "fampay|FamPay", "hevodata|Hevo Data",
+  "fi|Fi Money",
+  "sophos|Sophos",
+  "outreach|Outreach",  # added 2026-10-27: US scale-ups with India roles
+]
+ashby = [
+  "sarvam|Sarvam AI", "atlan", "openai|OpenAI", "composio", "snowflake", "amplitude", "notion",
+  "anyscale|Anyscale", "clickhouse|ClickHouse", "redis|Redis", "temporal|Temporal",  # added 2026-10-27: US scale-ups with India roles
+]
+smartrecruiters = [
+  "Swiggy", "BoschGroup|Bosch", "ServiceNow", "Freshworks", "Experian", "NielsenIQ", "Canva", "Continental",
+  "Mindtickle", "Unacademy", "Whatfix", "Cars24", "Ubisoft2|Ubisoft", "WesternDigital|Western Digital",
+  "Grab",
+]
+# Workday: "host/tenant/site|Name" taken from the careers URL https://<host>.myworkdayjobs.com/<site>
+workday = [
+  "nvidia.wd5/nvidia/NVIDIAExternalCareerSite|NVIDIA",
+  "salesforce.wd12/salesforce/External_Career_Site|Salesforce",
+  "adobe.wd5/adobe/external_experienced|Adobe",
+  "mastercard.wd1/mastercard/CorporateCareers|Mastercard",
+  "paypal.wd1/paypal/jobs|PayPal",
+  "intel.wd1/intel/External|Intel",
+  "hp.wd5/hp/ExternalCareerSite|HP",
+  "thomsonreuters.wd5/thomsonreuters/External_Career_Site|Thomson Reuters",
+  "workday.wd5/workday/Workday|Workday",
+  "autodesk.wd1/autodesk/Ext|Autodesk",
+  "broadcom.wd1/broadcom/External_Career|Broadcom",
+  "target.wd5/target/targetcareers|Target",
+  "citi.wd5/citi/2|Citi", "barclays.wd3/barclays/External_Career_Site_Barclays|Barclays", "db.wd3/db/DBWebsite|Deutsche Bank", "statestreet.wd1/statestreet/Global|State Street", "fmr.wd1/fmr/FidelityCareers|Fidelity", "analogdevices.wd1/analogdevices/External|Analog Devices", "micron.wd1/micron/External|Micron", "amat.wd1/amat/External|Applied Materials", "kla.wd1/kla/Search|KLA", "cadence.wd1/cadence/External_Careers|Cadence", "marvell.wd1/marvell/MarvellCareers|Marvell", "nxp.wd3/nxp/careers|NXP", "motorolasolutions.wd5/motorolasolutions/Careers|Motorola Solutions", "philips.wd3/philips/jobs-and-careers|Philips", "gehc.wd5/gehc/GEHC_ExternalSite|GE HealthCare", "redhat.wd5/redhat/jobs|Red Hat", "crowdstrike.wd5/crowdstrike/crowdstrikecareers|CrowdStrike", "zoom.wd5/zoom/Zoom|Zoom", "athenahealth.wd1/athenahealth/External|athenahealth", "lseg.wd3/lseg/Careers|LSEG", "blackrock.wd1/blackrock/BlackRock_Professional|BlackRock", "expedia.wd108/expedia/search|Expedia", "gartner.wd5/gartner/EXT|Gartner", "sprinklr.wd1/sprinklr/careers|Sprinklr", "ms.wd5/ms/External|Morgan Stanley", "pwc.wd3/pwc/Global_Experienced_Careers|PwC", "cisco.wd5/cisco/Cisco_Careers|Cisco", "hpe.wd5/hpe/Jobsathpe|HPE", "equinix.wd1/equinix/External|Equinix", "nike.wd1/nike/nke|Nike", "lowes.wd5/lowes/LWS_External_CS|Lowe's",
+]
+
+[tiers]
+# Company tiers for the Jobs filter and the dashboard. Matched against the company name (case-insensitive, whole
+# words). Anything not listed counts as "Mid-size & enterprise". Add names freely.
+big_tech = [
+  "google", "alphabet", "meta", "facebook", "amazon", "aws", "apple", "netflix", "microsoft", "nvidia", "openai",
+  "anthropic", "adobe", "salesforce", "oracle", "uber", "linkedin", "intel", "qualcomm", "ibm", "cisco", "sap",
+  "vmware", "broadcom", "amd", "samsung", "twitter", "tiktok", "bytedance",
+]
+us_unicorn = [
+  "stripe", "databricks", "rubrik", "mongodb", "okta", "gitlab", "elastic", "twilio", "coinbase", "datadog", "airbnb",
+  "toast", "samsara", "zscaler", "pure storage", "netskope", "harness", "cloudflare", "fivetran", "mixpanel",
+  "new relic", "sauce labs", "fastly", "sumo logic", "notion", "amplitude", "snowflake", "servicenow", "workday",
+  "autodesk", "rippling", "confluent", "hashicorp", "dropbox", "pinterest", "reddit", "figma", "asana", "robinhood",
+  "plaid", "brex", "airtable", "instacart", "doordash", "lyft", "gusto", "affirm", "chime", "scale ai", "cohere",
+  "anyscale", "dataiku", "cockroach labs", "intercom", "sentry", "grafana labs", "redis", "yugabyte", "couchbase",
+  "palantir", "nutanix", "gong", "clickhouse", "dbt labs", "starburst", "retool", "ramp", "deel", "vercel", "linear", "temporal", "outreach",
+  "falconx", "observe.ai", "contentstack", "commvault", "druva", "turing", "canva", "grab", "agoda",
+]
+startup = [
+  "groww", "razorpay", "cred", "meesho", "zeta", "paytm", "mindtickle", "pocket fm", "fampay", "hevo data", "fi money",
+  "sarvam ai", "sarvam", "atlan", "composio", "devrev", "glance", "inmobi", "swiggy", "unacademy", "whatfix", "cars24",
+  "zomato", "blinkit", "zepto", "phonepe", "flipkart", "ola", "nykaa", "dream11", "sharechat", "stage", "postman",
+  "browserstack", "chargebee", "freshworks", "clevertap", "moengage", "innovaccer", "icertis", "cleartax", "slice",
+  "jupiter", "udaan", "urban company", "lenskart", "upgrad", "physicswallah", "licious", "spinny", "acko", "zerodha",
+  "upstox", "coindcx", "coinswitch", "polygon", "gupshup", "yellow.ai", "haptik", "leadsquared", "darwinbox",
+  "hasura", "appsmith", "juspay", "pine labs", "khatabook", "bharatpe", "navi", "rapido", "krutrim", "zetwerk",
+  "highradius", "hackerrank", "sigmoid", "lambdatest", "shiprocket", "delhivery", "ather", "porter", "boat",
+]

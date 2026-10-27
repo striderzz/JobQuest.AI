@@ -1,0 +1,156 @@
+<p align="center"><img src="docs/social-preview.png" alt="JobQuest.AI - your AI co-pilot for the job hunt" width="100%"></p>
+
+# JobQuest.AI
+
+**Your AI co-pilot for the job hunt.** A desktop app that finds entry-level SDE / ML / AI jobs in India, ranks them
+against your resume, tracks every application, and helps with the outreach around them: cover letters, cold
+emails, a resume coach, and Gmail-based status updates. It runs locally, works with any of 10 LLM providers
+(or a local model), and ships as a single Windows `.exe`.
+
+> Built as a capstone project: a full-stack Python application covering data ingestion from 140+ job boards, an
+> LLM layer with structured outputs and provider fallback, analytics, email integration, and desktop packaging.
+
+## Screenshots
+
+| Jobs, ranked against your resume | Application tracker |
+|---|---|
+| ![Jobs](docs/screenshots/jobs.png) | ![Tracker](docs/screenshots/tracker.png) |
+
+| Dashboard + AI insights | Cold email desk |
+|---|---|
+| ![Dashboard](docs/screenshots/dashboard.png) | ![Cold email](docs/screenshots/cold-email.png) |
+
+| Coach (chat with files and photos) | Settings: 10 AI providers, Gmail, backups |
+|---|---|
+| ![Coach](docs/screenshots/coach.png) | ![Settings](docs/screenshots/settings.png) |
+
+<details><summary>Dark and colour themes (15 themes plus a random-palette generator)</summary>
+
+![Jobs, dark](docs/screenshots/jobs-dark.png)
+![Dashboard, midnight](docs/screenshots/dashboard-dark.png)
+![Tracker, ocean](docs/screenshots/tracker-ocean.png)
+</details>
+
+*All screenshots use the built-in demo data. Every person, company and email in them is fictional.*
+
+## Features
+
+**Job search**
+- Pulls fresh postings from **140+ company boards**: Greenhouse, Lever, Ashby, SmartRecruiters, Workday and
+  amazon.jobs APIs, plus optional JSearch (Google for Jobs), Adzuna and Jooble keys.
+- Keeps only roles **in India** (or remote within India) that are **entry level**: intern, new grad, or under
+  3 years. Experience requirements are parsed from the text, and "preferred" sections are ignored.
+- Scores each job against your resume twice: once by skill keywords, and once by an **LLM screen that returns
+  structured output**. The screen gives the real years required, a fit score, reasons, missing skills, and
+  contacts printed in the posting.
+- Filters for **company tier**: Big Tech (FAANG / MANGO), US unicorns with India offices, Indian startups, and
+  mid-size companies. Also filters by role, city, posting date and internships, with one-click "Remove".
+- Refreshes every 12 hours, in the app and through a Windows scheduled task.
+
+**Tracking and analytics**
+- A tracker with a table or board view, inline status, bulk edit and delete with undo, and Excel / CSV import
+  and export.
+- Statuses run Saved → Applied → Screening call → OA / Test → Interview → Offer, plus Rejected, Ghosted and
+  Withdrawn.
+- A **dashboard** of applications per day and week, a funnel, status, top companies, role families, company
+  tiers, weekdays, sources and locations. All numbers are computed in Python. The LLM only writes the
+  **insights and advice** summary, and it sees only aggregate numbers, never names.
+- A **daily target** (default 10) with a progress ring and Windows toast reminders.
+
+**AI assistance (bring any LLM)**
+- **10 providers** through one OpenAI-compatible layer: OpenAI, Anthropic, Google Gemini, Groq, DeepSeek,
+  xAI Grok, Moonshot Kimi, Mistral and OpenRouter, plus a **local model through Ollama**.
+- Providers can be reordered, are tried in turn if one fails, and each has a test button. With none configured,
+  every AI feature says "Please add an LLM key".
+- **Cover letters** from the job description, your resume and any extra files, such as a LinkedIn PDF. They
+  download as a clean PDF set in Calibri, and a local model is preferred when one is available.
+- **Coach**, a chat that knows your profile and tracker numbers. It accepts **files and photos** (vision) and
+  drafts CVs, emails and letters, which export to **PDF or Word**.
+- **Cold email desk:**
+  - Drop in screenshots of recruiter posts, or paste text, and it extracts each contact's name, email, title,
+    company and the role they're hiring for.
+  - It can also collect every hiring email printed in your job postings.
+  - It drafts a tailored email for each contact, and a sent email counts as an application.
+
+**Email (Gmail, app password)**
+- Reads recent job emails without changing them. It classifies each one (rejection, OA, interview, screening,
+  offer), matches it to tracker rows, and **proposes** updates for you to approve. It never moves an
+  application backwards.
+- Sends cold emails one at a time, only after you review the email and press Send.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph Desktop["JobQuestAI.exe (PyInstaller)"]
+    UI["Single-page UI<br/>Bootstrap 5 + plain JS + Chart.js"] -->|REST / JSON| API["FastAPI app<br/>(local only, strict CSP)"]
+    API --> DB[("SQLite<br/>jobs, tracker, settings")]
+    API --> PIPE["Search pipeline<br/>sources → filters → match"]
+    API --> LLM["llm.py<br/>provider table + fallback"]
+    API --> STATS["stats.py<br/>pure-Python analytics"]
+    API --> MAIL["mail.py<br/>IMAP read-only / SMTP send"]
+    API --> LET["letters.py<br/>PDF / DOCX"]
+  end
+  PIPE -->|public ATS APIs| BOARDS["Greenhouse · Lever · Ashby<br/>SmartRecruiters · Workday · Amazon"]
+  LLM --> PROVIDERS["OpenAI · Anthropic · Gemini · Groq · DeepSeek<br/>Grok · Kimi · Mistral · OpenRouter · Ollama"]
+  MAIL --> GMAIL["Gmail"]
+  SCHED["Windows Task Scheduler<br/>09:00 / 21:00"] -->|refresh + reminders| PIPE
+```
+
+| Layer | Tech |
+|---|---|
+| Backend | Python 3.13, FastAPI, Uvicorn, Pydantic, SQLite (WAL) |
+| AI | OpenAI SDK against any OpenAI-compatible endpoint, structured outputs with a JSON-mode fallback, vision input |
+| Front end | Bootstrap 5.3, Bootstrap Icons, Chart.js 4 (vendored), plain JavaScript with no build step |
+| Documents | pypdf, python-docx, fpdf2, openpyxl |
+| Desktop | PyInstaller single-file exe, Edge app-mode window, WinRT toast notifications |
+| Quality | 50+ `unittest` tests, pyflakes, a strict Content-Security-Policy, local-only host and origin checks |
+
+## Run it
+
+**Windows exe:** download `JobQuestAI.exe` from the [latest release](../../releases/latest) and double-click it.
+
+**From source:**
+```bash
+git clone https://github.com/striderzz/JobQuest.AI.git
+cd JobQuest.AI
+python -m venv .venv && .venv\Scripts\activate
+pip install -r requirements.txt
+python -m jobhunt serve          # opens http://127.0.0.1:8000
+```
+
+Then:
+1. **Profile:** upload your resume (PDF or DOCX).
+2. **Settings:** add any AI key. Gemini, Groq and OpenRouter have free tiers, or run Ollama locally.
+3. Press **Find new jobs**.
+
+**Try it with demo data** (fictional, never touches your real data folder):
+```bash
+set JOBHUNT_HOME=%TEMP%\jobquest-demo
+python -m jobhunt demo
+python -m jobhunt serve --port 8010
+```
+
+Other commands: `build_exe.cmd` builds the exe. `schedule_daily.ps1` registers the 12-hour refresh.
+`python -m unittest discover -s tests -t .` runs the tests.
+
+## Privacy and fair use
+
+- Everything runs on your PC. Keys, the database, resumes and backups live in `~/.jobhuntai`, outside the repo,
+  and backups never include keys.
+- Jobs come only from **public job-board APIs**. The app does not scrape LinkedIn, Naukri or Glassdoor, which
+  ban it; instead it links to pre-filtered searches on those sites.
+- Contact emails are only ones **printed in postings** or in material you provide. The app never guesses or
+  constructs an address.
+- AI calls send only what each feature needs. The dashboard insights get aggregate numbers only.
+- No email is ever sent without your explicit click.
+
+## Roadmap
+
+- Embeddings-based semantic matching alongside the keyword score
+- Interview-prep packs per job (likely questions from the JD)
+- macOS / Linux packaging
+
+## License
+
+MIT. Use it, fork it, and good luck with the hunt.

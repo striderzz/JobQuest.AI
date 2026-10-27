@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en" data-bs-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JobQuest.AI</title>
+<script src="/static/theme.js"></script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='32' height='32' aria-hidden='true'%3E%3Crect width='32' height='32' rx='7' fill='%23111113'/%3E%3Crect x='21.5' y='14' width='5.0' height='14' fill='%2396969e'/%3E%3Crect x='6' y='18' width='4.5' height='10' fill='%2396969e'/%3E%3Crect x='11.5' y='8' width='9.0' height='20' fill='%23ffffff'/%3E%3Crect x='13' y='5.5' width='6' height='2.5' fill='%23ffffff'/%3E%3Crect x='14.5' y='3.5' width='3.0' height='2.0' fill='%23ffffff'/%3E%3Crect x='15.6' y='0.8' width='0.8' height='2.7' fill='%23ffffff'/%3E%3Crect x='4.5' y='28' width='23.0' height='1.2' fill='%23ffffff'/%3E%3Crect x='13' y='10' width='1.4' height='1.6' fill='%23111113'/%3E%3Crect x='15.3' y='10' width='1.4' height='1.6' fill='%23111113'/%3E%3Crect x='17.6' y='10' width='1.4' height='1.6' fill='%23111113'/%3E%3Crect x='13' y='13' width='1.4' height='1.6' fill='%23111113'/%3E%3Crect x='15.3' y='13' width='1.4' height='1.6' fill='%23111113'/%3E%3Crect x='17.6' y='13' width='1.4' height='1.6' fill='%23111113'/%3E%3Crect x='13' y='16' width='1.4' height='1.6' fill='%23111113'/%3E%3Crect x='15.3' y='16' width='1.4' height='1.6' fill='%23111113'/%3E%3Crect x='17.6' y='16' width='1.4' height='1.6' fill='%23111113'/%3E%3Crect x='13' y='19' width='1.4' height='1.6' fill='%23111113'/%3E%3Crect x='15.3' y='19' width='1.4' height='1.6' fill='%23111113'/%3E%3Crect x='17.6' y='19' width='1.4' height='1.6' fill='%23111113'/%3E%3Crect x='13' y='22' width='1.4' height='1.6' fill='%23111113'/%3E%3Crect x='15.3' y='22' width='1.4' height='1.6' fill='%23111113'/%3E%3Crect x='17.6' y='22' width='1.4' height='1.6' fill='%23111113'/%3E%3Crect x='13' y='25' width='1.4' height='1.6' fill='%23111113'/%3E%3Crect x='15.3' y='25' width='1.4' height='1.6' fill='%23111113'/%3E%3Crect x='17.6' y='25' width='1.4' height='1.6' fill='%23111113'/%3E%3Crect x='22.6' y='16' width='1.1' height='1.3' fill='%23111113'/%3E%3Crect x='24.6' y='16' width='1.1' height='1.3' fill='%23111113'/%3E%3Crect x='22.6' y='19' width='1.1' height='1.3' fill='%23111113'/%3E%3Crect x='24.6' y='19' width='1.1' height='1.3' fill='%23111113'/%3E%3Crect x='22.6' y='22' width='1.1' height='1.3' fill='%23111113'/%3E%3Crect x='24.6' y='22' width='1.1' height='1.3' fill='%23111113'/%3E%3Crect x='22.6' y='25' width='1.1' height='1.3' fill='%23111113'/%3E%3Crect x='24.6' y='25' width='1.1' height='1.3' fill='%23111113'/%3E%3Crect x='7.2' y='20' width='1.1' height='1.3' fill='%23111113'/%3E%3Crect x='7.2' y='23' width='1.1' height='1.3' fill='%23111113'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;700;800&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css"
+      integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.2/font/bootstrap-icons.min.css"
+      integrity="sha384-nWN3KqaaVcbEsCjLSV+2jMjh62Iny/+mN3srM8TZeM8N6aj7eDl5wwYggjAJ4/sJ" crossorigin="anonymous">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<nav class="navbar navbar-expand-lg sticky-top app-nav">
+  <div class="container-xxl">
+    <a class="navbar-brand d-flex align-items-center gap-2 me-4" href="#/jobs">
+      <span class="brand-mark"><svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><rect x="21.5" y="14" width="5.0" height="14" fill="#96969e"/><rect x="6" y="18" width="4.5" height="10" fill="#96969e"/><rect x="11.5" y="8" width="9.0" height="20" fill="#ffffff"/><rect x="13" y="5.5" width="6" height="2.5" fill="#ffffff"/><rect x="14.5" y="3.5" width="3.0" height="2.0" fill="#ffffff"/><rect x="15.6" y="0.8" width="0.8" height="2.7" fill="#ffffff"/><rect x="4.5" y="28" width="23.0" height="1.2" fill="#ffffff"/><rect x="13" y="10" width="1.4" height="1.6" fill="#111113"/><rect x="15.3" y="10" width="1.4" height="1.6" fill="#111113"/><rect x="17.6" y="10" width="1.4" height="1.6" fill="#111113"/><rect x="13" y="13" width="1.4" height="1.6" fill="#111113"/><rect x="15.3" y="13" width="1.4" height="1.6" fill="#111113"/><rect x="17.6" y="13" width="1.4" height="1.6" fill="#111113"/><rect x="13" y="16" width="1.4" height="1.6" fill="#111113"/><rect x="15.3" y="16" width="1.4" height="1.6" fill="#111113"/><rect x="17.6" y="16" width="1.4" height="1.6" fill="#111113"/><rect x="13" y="19" width="1.4" height="1.6" fill="#111113"/><rect x="15.3" y="19" width="1.4" height="1.6" fill="#111113"/><rect x="17.6" y="19" width="1.4" height="1.6" fill="#111113"/><rect x="13" y="22" width="1.4" height="1.6" fill="#111113"/><rect x="15.3" y="22" width="1.4" height="1.6" fill="#111113"/><rect x="17.6" y="22" width="1.4" height="1.6" fill="#111113"/><rect x="13" y="25" width="1.4" height="1.6" fill="#111113"/><rect x="15.3" y="25" width="1.4" height="1.6" fill="#111113"/><rect x="17.6" y="25" width="1.4" height="1.6" fill="#111113"/><rect x="22.6" y="16" width="1.1" height="1.3" fill="#111113"/><rect x="24.6" y="16" width="1.1" height="1.3" fill="#111113"/><rect x="22.6" y="19" width="1.1" height="1.3" fill="#111113"/><rect x="24.6" y="19" width="1.1" height="1.3" fill="#111113"/><rect x="22.6" y="22" width="1.1" height="1.3" fill="#111113"/><rect x="24.6" y="22" width="1.1" height="1.3" fill="#111113"/><rect x="22.6" y="25" width="1.1" height="1.3" fill="#111113"/><rect x="24.6" y="25" width="1.1" height="1.3" fill="#111113"/><rect x="7.2" y="20" width="1.1" height="1.3" fill="#111113"/><rect x="7.2" y="23" width="1.1" height="1.3" fill="#111113"/></svg></span>
+      <span class="lh-sm"><span class="brand-name">JobQuest<span class="text-accent">.AI</span></span>
+        <small class="d-block brand-sub">Your AI co-pilot for the job hunt</small></span>
+    </a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav" aria-controls="nav" aria-expanded="false" aria-label="Menu">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="nav">
+      <ul class="navbar-nav nav-pills gap-1 me-auto my-2 my-lg-0" id="tabs"></ul>
+      <div class="d-flex align-items-center gap-2 nav-tools">
+        <a href="#/dashboard" id="target-pill" class="target-pill"></a>
+        <span id="last-run" class="small text-body-secondary me-1"></span>
+        <div class="dropdown"><button class="btn btn-outline-secondary btn-theme" type="button" data-bs-toggle="dropdown" id="theme-btn" aria-expanded="false" aria-label="Choose a theme" title="Theme"></button>
+          <ul class="dropdown-menu dropdown-menu-end" id="theme-menu"></ul></div>
+        <button class="btn btn-ink" type="button" data-action="refresh" id="refresh-btn"></button>
+      </div>
+    </div>
+  </div>
+  <div class="refresh-strip d-none" id="progress" role="status" aria-live="polite">
+    <div class="container-xxl d-flex align-items-center gap-3 py-2 flex-wrap">
+      <span class="fw-semibold" id="progress-label"></span>
+      <div class="progress flex-grow-1" role="progressbar" aria-label="Search progress">
+        <div class="progress-bar progress-bar-striped progress-bar-animated" id="progress-bar"></div>
+      </div>
+      <span class="small text-body-secondary" id="progress-detail"></span>
+    </div>
+  </div>
+</nav>
+
+<main class="container-xxl pb-5" id="app" tabindex="-1"></main>
+
+<footer class="container-xxl py-4 small text-body-secondary border-top">
+  JobQuest.AI · Your AI co-pilot for the job hunt · India only · entry level, under 3 years · every link goes straight to the company's own job page
+</footer>
+
+<div class="modal fade" id="ai-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
+  <div class="modal-header border-0 pb-0"><button type="button" class="btn-close ms-auto" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body pt-0" id="ai-modal-body"></div></div></div></div>
+
+<div class="offcanvas offcanvas-end detail-sheet" tabindex="-1" id="sheet" aria-label="Job details">
+  <div class="offcanvas-header pb-0"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="offcanvas"><i class="bi bi-arrow-left"></i> Back to jobs</button></div>
+  <div class="offcanvas-body" id="sheet-body"></div>
+</div>
+
+<div class="toast-container position-fixed bottom-0 start-50 translate-middle-x p-3">
+  <div id="toast" class="toast app-toast border-0" role="status" aria-live="polite" aria-atomic="true">
+    <div class="d-flex"><div class="toast-body fw-medium" id="toast-body"></div>
+      <button type="button" class="btn btn-sm btn-light fw-semibold my-auto d-none" id="toast-action"></button>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
+<script src="/static/vendor/chart.umd.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
