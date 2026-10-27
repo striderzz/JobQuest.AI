@@ -108,7 +108,16 @@ flowchart LR
 
 ## Run it
 
-**Windows exe:** download `JobQuestAI.exe` from the [latest release](../../releases/latest) and double-click it.
+**Install on Windows (recommended):** download **`JobQuestAI-Setup-1.0.0.exe`** from the
+[latest release](../../releases/latest) and run it.
+- It installs for your user only, with no admin prompt, into `%LOCALAPPDATA%\Programs\JobQuest.AI`.
+- It adds Start menu and optional Desktop shortcuts, and can optionally schedule a job search every 12 hours.
+- Uninstall it from *Settings → Apps* like any other app. Your data in `%USERPROFILE%\.jobhuntai` is kept.
+
+**Portable:** download `JobQuestAI.exe` from the same release and double-click it; there's nothing to install.
+
+To build the installer yourself, run `build_exe.cmd`, then `build_installer.cmd`, which needs
+[Inno Setup 6](https://jrsoftware.org/isinfo.php): `winget install JRSoftware.InnoSetup`.
 
 **From source:**
 ```bash
