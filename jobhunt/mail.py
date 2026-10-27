@@ -45,6 +45,11 @@ class MailError(Exception):
     pass
 
 
+def _clean(pw):
+    """Google shows app passwords in groups of 4; copying them often brings non-breaking spaces along."""
+    return re.sub(r"[\s ​-‍﻿]", "", pw or "")
+
+
 def account():
     env = settings.read_env()
     return env.get(ADDR_VAR, ""), env.get(PASS_VAR, "")
@@ -58,7 +63,7 @@ def connected():
 def _imap(addr, pw):
     try:
         m = imaplib.IMAP4_SSL(IMAP_HOST, timeout=30)
-        m.login(addr, pw.replace(" ", ""))
+        m.login(addr, _clean(pw))
         return m
     except imaplib.IMAP4.error as e:
         why = e.args[0].decode(errors="replace") if e.args and isinstance(e.args[0], bytes) else str(e)
@@ -73,13 +78,13 @@ def connect(addr, pw):
     addr, pw = addr.strip(), pw.strip()
     if not EMAIL_RX.match(addr):
         raise MailError("That doesn't look like an email address.")
-    pw = pw.replace(" ", "")
+    pw = _clean(pw)
     if not re.fullmatch(r"[A-Za-z]{16}", pw):
         raise MailError(f"That's {len(pw)} characters, so it isn't a Gmail app password. Google app passwords are "
                         "exactly 16 letters (shown as 4 groups of 4). Turn on 2-Step Verification, then create one at "
                         "myaccount.google.com/apppasswords and paste it here.")
     _imap(addr, pw).logout()
-    settings.write_env({ADDR_VAR: addr, PASS_VAR: pw.replace(" ", "")})
+    settings.write_env({ADDR_VAR: addr, PASS_VAR: pw})
 
 
 def disconnect():

@@ -418,3 +418,9 @@ footer.container-xxl { padding-top: .75rem !important; padding-bottom: .75rem !i
   .refresh-strip .container-xxl { max-width: 1280px; padding: 0 2.25rem; }
 }
 @media (min-width: 992px) { body:has(#progress:not(.d-none)) main#app { margin-top: 5rem; transition: margin-top .2s; } }
+/* theme menu: positioned by CSS (data-bs-display="static") so it always stays on screen */
+.theme-dd { position: relative; }
+.theme-dd .dropdown-menu { right: 0; left: auto; top: calc(100% + .35rem); max-height: min(70vh, 34rem); overflow-y: auto; min-width: 13rem; }
+@media (min-width: 992px) {
+  .theme-dd .dropdown-menu { top: auto; bottom: calc(100% + .4rem); left: 0; right: auto; width: 100%; }   /* opens upward in the sidebar */
+}
