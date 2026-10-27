@@ -375,8 +375,8 @@ footer.container-xxl { padding-top: .75rem !important; padding-bottom: .75rem !i
 
 /* ---- app shell: left sidebar navigation (Jobright / desktop-app style) with roomy content on wide screens */
 @media (min-width: 992px) {
-  body { padding-left: 248px; }
-  .app-nav.navbar { position: fixed; top: 0; left: 0; bottom: 0; width: 248px; padding: 1.4rem 1rem 1rem; flex-direction: column;
+  body { padding-left: 224px; }
+  .app-nav.navbar { position: fixed; top: 0; left: 0; bottom: 0; width: 224px; padding: 1.4rem 1rem 1rem; flex-direction: column;
     align-items: stretch; flex-wrap: nowrap; border-bottom: 0; border-right: 1px solid var(--bs-border-color); box-shadow: none; z-index: 1030; }
   .app-nav > .container-xxl { flex-direction: column; align-items: stretch; height: 100%; padding: 0; max-width: none; flex-wrap: nowrap; }
   .app-nav .navbar-brand { margin: 0 0 1.75rem .4rem !important; }
@@ -392,7 +392,7 @@ footer.container-xxl { padding-top: .75rem !important; padding-bottom: .75rem !i
   .app-nav #last-run { display: block !important; order: 4; text-align: center; margin: 0 !important; }
   .app-nav .brand-sub, .app-nav .target-pill span { display: inline !important; }
   .app-nav .brand-sub { display: block !important; }
-  .refresh-strip { position: fixed; top: 0; left: 248px; right: 0; z-index: 1040; }
+  .refresh-strip { position: fixed; top: 0; left: 224px; right: 0; z-index: 1040; }
   .container-xxl { max-width: 1280px; }
   main#app { background: transparent; border: 0; box-shadow: none; border-radius: 0; padding: 0 2.25rem; margin: 2rem auto 2.5rem; }
   footer.container-xxl { padding: 1rem 2.25rem 2rem !important; border-top: 0 !important; }
@@ -413,7 +413,7 @@ footer.container-xxl { padding-top: .75rem !important; padding-bottom: .75rem !i
   /* a blur filter would make the sidebar the containing block for fixed children; the search progress bar must
      span the content area, so the sidebar uses a plain solid background instead */
   .app-nav.navbar { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--jh-card); }
-  .refresh-strip { position: fixed; top: 0; left: 248px; right: 0; width: auto; z-index: 1040;
+  .refresh-strip { position: fixed; top: 0; left: 224px; right: 0; width: auto; z-index: 1040;
     background: var(--jh-card); border-bottom: 1px solid var(--bs-border-color); box-shadow: var(--jh-shadow); }
   .refresh-strip .container-xxl { max-width: 1280px; padding: 0 2.25rem; }
 }
@@ -424,3 +424,20 @@ footer.container-xxl { padding-top: .75rem !important; padding-bottom: .75rem !i
 @media (min-width: 992px) {
   .theme-dd .dropdown-menu { top: auto; bottom: calc(100% + .4rem); left: 0; right: auto; width: 100%; }   /* opens upward in the sidebar */
 }
+/* ---- compact desktop density: pages fit the window instead of scrolling past it */
+@media (min-width: 992px) {
+  html { font-size: 14.5px; }
+  .app-nav.navbar { padding: 1.1rem .8rem .9rem; }
+  .app-nav #tabs .nav-link { padding: .5rem .75rem; }
+  main#app { margin-top: 1.4rem; padding: 0 1.75rem; }
+}
+.card-body, .card-body.p-3 { padding: 1rem 1.15rem !important; }
+.card-body.p-4 { padding: 1.15rem 1.3rem !important; }
+.tracker-table th, .tracker-table td { padding: .32rem .6rem; }
+.tracker-table .form-select-sm { padding-top: .15rem; padding-bottom: .15rem; font-size: .82rem; min-height: 0; }
+.tracker-wrap { max-height: calc(100vh - 230px); }
+.prov { padding: .5rem .8rem; }
+.chat-log { height: calc(100vh - 400px); min-height: 220px; }
+.coach { min-height: 0; }
+.hero { margin-bottom: 1rem !important; }
+.tile, .stat { padding: .55rem .85rem !important; }
