@@ -409,3 +409,12 @@ footer.container-xxl { padding-top: .75rem !important; padding-bottom: .75rem !i
 .job-card { margin-bottom: .75rem !important; }
 .tile, .stat { padding: .8rem 1rem !important; }
 .tracker-table th, .tracker-table td { padding: .55rem .75rem; }
+@media (min-width: 992px) {
+  /* a blur filter would make the sidebar the containing block for fixed children; the search progress bar must
+     span the content area, so the sidebar uses a plain solid background instead */
+  .app-nav.navbar { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--jh-card); }
+  .refresh-strip { position: fixed; top: 0; left: 248px; right: 0; width: auto; z-index: 1040;
+    background: var(--jh-card); border-bottom: 1px solid var(--bs-border-color); box-shadow: var(--jh-shadow); }
+  .refresh-strip .container-xxl { max-width: 1280px; padding: 0 2.25rem; }
+}
+@media (min-width: 992px) { body:has(#progress:not(.d-none)) main#app { margin-top: 5rem; transition: margin-top .2s; } }
