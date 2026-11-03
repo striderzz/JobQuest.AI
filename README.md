@@ -36,7 +36,7 @@ emails, a resume coach, and Gmail-based status updates. It runs locally, works w
 ## Features
 
 **Job search**
-- Pulls fresh postings from **140+ company boards**: Greenhouse, Lever, Ashby, SmartRecruiters, Workday and
+- Pulls fresh postings from **145+ company boards**: Greenhouse, Lever, Ashby, SmartRecruiters, Workday and
   amazon.jobs APIs, plus optional JSearch (Google for Jobs), Adzuna and Jooble keys.
 - Keeps only roles **in India** (or remote within India) that are **entry level**: intern, new grad, or under
   3 years. Experience requirements are parsed from the text, and "preferred" sections are ignored.
@@ -45,16 +45,30 @@ emails, a resume coach, and Gmail-based status updates. It runs locally, works w
   contacts printed in the posting.
 - Filters for **company tier**: Big Tech (FAANG / MANGO), US unicorns with India offices, Indian startups, and
   mid-size companies. Also filters by role, city, posting date and internships, with one-click "Remove".
-- Refreshes every 12 hours, in the app and through a Windows scheduled task.
+- Refreshes every 12 hours, in the app and through a Windows scheduled task. A progress bar shows how far a
+  search has got in **percent**, and the Find button switches between **job openings** and **cold emails**
+  (hiring contacts printed in the postings).
+- A directory of **~300 top tech employers in India**, marking which boards are searched automatically. Glassdoor,
+  Naukri, LinkedIn and the other sites that don't allow scraping get pre-filtered search links instead.
 
 **Tracking and analytics**
 - A tracker with a table or board view, inline status, bulk edit and delete with undo, and Excel / CSV import
   and export.
 - Statuses run Saved → Applied → Screening call → OA / Test → Interview → Offer, plus Rejected, Ghosted and
   Withdrawn.
-- A **dashboard** of applications per day and week, a funnel, status, top companies, role families, company
-  tiers, weekdays, sources and locations. All numbers are computed in Python. The LLM only writes the
-  **insights and advice** summary, and it sees only aggregate numbers, never names.
+- An **oracle dashboard**:
+  - Filters by date range (7 days to all time), by day, week or month, and by company and role.
+  - Charts the jobs found by company, category and date, response rates by tier, role and source, days until a
+    reply, and outcomes per company.
+  - **Oracle cards** are rule-based findings computed in Python, each with a tip, for example "Startups reply
+    4.8x more than US scale-ups".
+  - An **Ask the oracle** chat answers from those numbers.
+  - The LLM sees only aggregate numbers, never company names, notes or contacts.
+- **Clean up names:** autocorrects company names (typos, short forms, "Pvt Ltd" suffixes; "tcs" becomes Tata
+  Consultancy Services) and roles ("mle eng" becomes Machine Learning Engineer). You tick the changes to apply,
+  and they can be undone. Company and role inputs autocomplete, and a blank location defaults to India.
+- **Role resumes:** reads up to 10 resumes from a folder, each tagged with its target role. Cold emails and
+  cover letters pick the matching one automatically.
 - A **daily target** (default 10) with a progress ring and Windows toast reminders.
 
 **AI assistance (bring any LLM)**
@@ -71,6 +85,8 @@ emails, a resume coach, and Gmail-based status updates. It runs locally, works w
     company and the role they're hiring for.
   - It can also collect every hiring email printed in your job postings.
   - It drafts a tailored email for each contact, and a sent email counts as an application.
+  - **Email them one by one** walks through each unsent contact. It drafts each email and attaches the
+    role-matched resume, then waits for **Send**, Skip or Stop.
 
 **Email (Gmail, app password)**
 - Reads recent job emails without changing them. It classifies each one (rejection, OA, interview, screening,

@@ -72,5 +72,5 @@ window.JQ_SKINS = { light: ["light", "Light"], dark: ["dark", "Dark"], minimal: 
   if (saved && saved.charAt(0) === '"') saved = saved.slice(1, -1);
   var q = (location.search.match(/[?&]skin=([\w-]+)/) || [])[1];      // ?skin=dark previews a theme without saving it
   if (q) saved = q;
-  window.applySkin(saved || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+  window.applySkin(saved || "graphite");
 })();

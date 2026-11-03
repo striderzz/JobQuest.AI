@@ -216,7 +216,7 @@ class TrackerImport(unittest.TestCase):
         again = c.post("/api/tracker/import", files={"file": ("apps.xlsx", buf.getvalue())}).json()
         self.assertEqual((again["added"], again["possible_duplicates"]), (1, 1))  # repeats are kept, only flagged
         jobs = [j for j in c.get("/api/jobs").json()["jobs"] if j["company"] == "Meesho"]
-        self.assertEqual((jobs[0]["status"], jobs[0]["location"]), ("applied", ""))
+        self.assertEqual((jobs[0]["status"], jobs[0]["location"]), ("applied", "India"))   # blank defaults to India
         self.assertEqual(c.post("/api/tracker", json={"company": "X", "role": ""}).status_code, 400)
 
 
@@ -407,7 +407,7 @@ class Dashboard(unittest.TestCase):
         self.assertEqual(s["kpis"]["streak"], 2)                                   # 26th and 27th
         self.assertEqual(s["kpis"]["response_rate"], 75.0)                         # screening, rejected, offer
         self.assertEqual([f["n"] for f in s["funnel"]], [4, 2, 1, 1, 1])
-        self.assertEqual({x["label"] for x in s["locations"]}, {"Bengaluru", "Hyderabad", "Remote", "Not given"})
+        self.assertEqual({x["label"] for x in s["locations"]}, {"Bengaluru", "Hyderabad", "Remote", "India"})   # blank means India
         self.assertEqual(stats.role_family("Senior ML Engineer"), "ML / AI")
         self.assertEqual(stats.role_family("Backend Developer"), "Software engineering")
         self.assertNotIn("Acme", json_dump(stats.digest(s)))                     # the AI never sees company names
@@ -549,3 +549,88 @@ class Mail(unittest.TestCase):
         again = c.post("/api/outreach/mark-sent", json={"contact_id": "c1"}).json()
         self.assertEqual(again["tracked_job_id"], j["id"])                        # no duplicate entry
         self.assertEqual(c.post("/api/outreach/mark-sent", json={"contact_id": "c2"}).status_code, 400)
+
+
+class Round2(unittest.TestCase):
+    def test_normalize(self):
+        from jobhunt import normalize as n
+        self.assertEqual(n.role("mle eng")[0], "Machine Learning Engineer")
+        self.assertEqual(n.role("ai engineer")[0], "AI Engineer")
+        self.assertEqual(n.role("SDE-2")[0], "Software Development Engineer 2")
+        self.assertEqual(n.role("machine learning enginer")[0], "Machine Learning Engineer")
+        self.assertIsNone(n.role("Software Engineer")[0])
+        self.assertEqual(n.company("Gogle")[0], "Google")
+        self.assertEqual(n.company("tcs")[0], "Tata Consultancy Services")
+        self.assertEqual(n.company("Infosys Limited")[0], "Infosys")
+        self.assertIsNone(n.company("Amazon")[0])
+
+    def test_cleanup_round_trip(self):
+        c = TestClient(api.app)
+        jid = db.add_manual("micorsoft", "mle eng", "2026-10-20")
+        sug = [s for s in c.get("/api/cleanup/suggest").json()["suggestions"] if s["id"] == jid]
+        self.assertEqual({(s["field"], s["new"]) for s in sug}, {("company", "Microsoft"), ("title", "Machine Learning Engineer")})
+        self.assertEqual(db.get_job(jid)["company"], "micorsoft")                         # suggest never writes
+        r = c.post("/api/cleanup/apply", json={"changes": [s for s in sug if s["field"] == "company"]}).json()
+        self.assertEqual((r["applied"], db.get_job(jid)["company"], db.get_job(jid)["title"]), (1, "Microsoft", "mle eng"))
+        c.post("/api/tracker/undo", json={"rows": r["undo"]})
+        self.assertEqual(db.get_job(jid)["company"], "micorsoft")
+        hint = c.post("/api/tracker", json={"company": "Gogle", "role": "sde"}).json()["name_hint"]
+        self.assertEqual(hint, {"company": "Google", "title": "Software Development Engineer"})
+
+    def test_explore_and_oracle(self):
+        from datetime import date
+        from jobhunt import stats
+        today = date(2026, 10, 27)
+        rows = [dict(id=i, status=("screening" if i % 4 == 0 else "applied"), applied_on=f"2026-{9 + i % 2:02d}-{1 + i % 27:02d}",
+                     status_at="2026-10-27", company=("Google" if i % 2 else "Acme"), title="ML Engineer", source="Added by you")
+                for i in range(40)]
+        for g, n in (("day", 30), ("week", 5), ("month", 2)):     # 28 Sep - 27 Oct
+            self.assertEqual(len(stats.explore(today, rows, "30d", g)["series"]), n)
+        e = stats.explore(today, rows, "all", "auto")
+        self.assertEqual(e["applications"], 40)
+        self.assertTrue(e["oracle"] and all({"tone", "title", "tip"} <= set(o) for o in e["oracle"]))
+        self.assertEqual(sum(x["n"] for x in e["rates"]["tier"]), 40)
+
+    def test_progress_percent_monotonic(self):
+        seq = [dict(running=True, phase="Starting"), dict(running=True, phase="AI is reading your resume"),
+               dict(running=True, phase="Searching job boards", done=5, total=10), dict(running=True, phase="Searching job boards", done=10, total=10),
+               dict(running=True, phase="Filtering to India"), dict(running=True, phase="AI is checking jobs", done=3, total=4),
+               dict(running=False, phase="Done")]
+        pcts = [refresh.overall_percent(s) for s in seq]
+        self.assertEqual(pcts, sorted(pcts))
+        self.assertEqual(pcts[-1], 100)
+
+    def test_mail_attachment(self):
+        import tempfile, os
+        from jobhunt import mail
+        f = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False); f.write(b"%PDF-1.4 test"); f.close()
+        try:
+            m = mail.build_message("me@gmail.com", "hr@x.example", "Hi", "Body", [f.name])
+            parts = [p.get_filename() for p in m.iter_attachments()]
+            self.assertEqual(parts, [os.path.basename(f.name)])
+        finally:
+            os.unlink(f.name)
+
+    def test_resume_folder_scan_and_pick(self):
+        import shutil
+        from jobhunt import settings
+        folder = settings.HOME / "scan-test"
+        folder.mkdir(exist_ok=True)
+        for r in db.resumes():
+            db.delete_resume(r["id"])
+        (folder / "Me_ML.docx").write_bytes(resume_docx())
+        (folder / "Me_SDE.docx").write_bytes(resume_docx())
+        db.set_setting("resumes_dir", str(folder))
+        try:
+            r = profile.scan_folder()
+            self.assertEqual((r["added"], r["removed"]), (2, 0))
+            self.assertEqual(profile.scan_folder()["added"], 0)                            # unchanged files are skipped
+            roles = {x["filename"]: x["target_role"] for x in db.resumes()}
+            self.assertEqual(roles, {"Me_ML.docx": "Machine Learning Engineer", "Me_SDE.docx": "Software Engineer"})
+            self.assertEqual(profile.pick_resume("ML Engineer Intern")["filename"], "Me_ML.docx")
+            self.assertEqual(profile.pick_resume("Backend Developer")["filename"], "Me_SDE.docx")
+            (folder / "Me_ML.docx").unlink()
+            self.assertEqual(profile.scan_folder()["removed"], 1)
+        finally:
+            db.set_setting("resumes_dir", "")
+            shutil.rmtree(folder, ignore_errors=True)

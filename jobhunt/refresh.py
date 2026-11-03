@@ -23,7 +23,25 @@ class Progress:
 
     def snapshot(self):
         with self._lock:
-            return dict(self.state)
+            s = dict(self.state)
+        s["percent"] = overall_percent(s)
+        return s
+
+
+# (phase prefix, start %, end %) - one overall bar across the whole search
+PHASES = [("Starting", 0, 2), ("AI is reading", 2, 5), ("Searching", 5, 70), ("Filtering", 70, 75),
+          ("AI is checking", 75, 98), ("Saving", 98, 99), ("Done", 100, 100)]
+
+
+def overall_percent(s):
+    if not s.get("running"):
+        return 100 if s.get("phase") == "Done" else 0
+    phase = s.get("phase") or ""
+    for prefix, a, b in PHASES:
+        if phase.startswith(prefix):
+            frac = (s.get("done") or 0) / s["total"] if s.get("total") else 0
+            return round(a + (b - a) * min(1, frac))
+    return 75
 
 
 PROGRESS = Progress()

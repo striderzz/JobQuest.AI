@@ -148,23 +148,45 @@ function renderShell() {
   $("#target-pill").innerHTML = `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="9" class="tr-bg"/><circle cx="12" cy="12" r="9" class="tr-fg ${frac >= 1 ? "done" : ""}" stroke-dasharray="${(frac * C).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 12 12)"/></svg><span><b>${tg.count}</b>/${tg.target} today</span>`;
   $("#target-pill").title = frac >= 1 ? "Daily target met" : `${tg.target - tg.count} more applications to hit today's target`;
   const btn = $("#refresh-btn");
-  if (!btn.disabled) btn.innerHTML = `${bi("arrow-repeat")} Find new jobs`;
+  if (!btn.disabled) btn.innerHTML = findLabel();
   themeIcon();
   $$("#tabs .nav-link").forEach(a => a.classList.toggle("active", a.dataset.view === currentView()));
 }
 
 function showProgress(p) {
   const box = $("#progress"), btn = $("#refresh-btn");
-  if (!p.running) { box.classList.add("d-none"); btn.disabled = false; btn.innerHTML = `${bi("arrow-repeat")} Find new jobs`; return; }
+  if (!p.running) { box.classList.add("d-none"); btn.disabled = false; btn.innerHTML = findLabel(); return; }
   box.classList.remove("d-none");
   btn.disabled = true; btn.innerHTML = `${bi("arrow-repeat", "spin")} Searching…`;
   $("#progress-label").textContent = p.phase || "Working";
-  const pct = p.total ? Math.round(100 * p.done / p.total) : 100;
+  const pct = p.percent ?? 0;
   $("#progress-bar").style.width = `${pct}%`;
+  $("#progress-pct").textContent = `${pct}%`;
   $("#progress-detail").textContent = p.total ? `${p.done} of ${p.total}${p.detail ? " · " + p.detail : ""}` : (p.detail || "");
 }
 
+function findMode() { try { return localStorage.getItem("jh:find") || "jobs"; } catch { return "jobs"; } }
+function findLabel() { return findMode() === "cold" ? `${bi("envelope-at")} Find cold emails` : `${bi("arrow-repeat")} Find new jobs`; }
+function setFindMode(m) {
+  try { localStorage.setItem("jh:find", m); } catch { /* private mode */ }
+  const btn = $("#refresh-btn"); if (!btn.disabled) btn.innerHTML = findLabel();
+  toast(m === "cold" ? "Mode: cold emails - a search, then the hiring emails printed in postings" : "Mode: job openings", 2500);
+}
+
+// Type-ahead for company and role inputs: well-known names plus everything already in your tracker.
+async function loadNames() {
+  if (S.namesLoaded) return;
+  try {
+    const r = await api("/api/names");
+    S.namesLoaded = true;
+    const fill = (id, list) => { let dl = document.getElementById(id); if (!dl) { dl = document.createElement("datalist"); dl.id = id; document.body.appendChild(dl); }
+      dl.innerHTML = list.map(n => `<option value="${esc(n)}">`).join(""); };
+    fill("dl-company", r.companies); fill("dl-role", r.roles);
+  } catch { /* type-ahead is optional */ }
+}
+
 async function loadAll() {
+  loadNames();
   const [st, js] = await Promise.all([api("/api/state"), api("/api/jobs")]);
   S.state = st; S.jobs = js.jobs; S.details = {};
   S.lastRunId = st.last_run ? st.last_run.id : null;
@@ -201,6 +223,11 @@ function startPolling() {
     else if (p.result) {
       const r = p.result;
       toast(`${r.new} new job${r.new === 1 ? "" : "s"} · ${r.kept} matching${r.ai_checked ? ` · AI checked ${r.ai_checked}` : ""}${r.ai_error ? " · AI: " + r.ai_error : ""}`, 6000);
+      if (S.coldAfter) {
+        S.coldAfter = false;
+        try { const o = await api("/api/outreach/from-postings", { method: "POST" }); toast(`${o.added} new hiring contact${o.added === 1 ? "" : "s"} from postings`, 6000); location.hash = "#/outreach"; }
+        catch (e) { toast(e.message, 6000); }
+      }
     }
     await loadAll();
   };
@@ -209,6 +236,7 @@ function startPolling() {
 }
 
 async function startRefresh() {
+  S.coldAfter = findMode() === "cold";
   try { await api("/api/refresh", { method: "POST" }); startPolling(); }
   catch (e) { toast(e.message, 6000); }
 }
@@ -344,9 +372,16 @@ function renderJobs() {
       </div>
     </div></div>
     <div class="accordion mb-3 rise" id="sites"><div class="accordion-item">
-      <h2 class="accordion-header"><button class="accordion-button collapsed fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#sites-body">${bi("link-45deg")}&nbsp; Also search LinkedIn, Naukri, Indeed and more, pre-filtered for you</button></h2>
+      <h2 class="accordion-header"><button class="accordion-button collapsed fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#sites-body">${bi("link-45deg")}&nbsp; Also search LinkedIn, Naukri, Glassdoor, Indeed and more, pre-filtered for you</button></h2>
       <div id="sites-body" class="accordion-collapse collapse" data-bs-parent="#sites"><div class="accordion-body">${links}
         <div class="small text-body-secondary">These sites don't allow automated searching, so each link opens your own browser already filtered to India, entry level and the last 24 hours.</div></div></div>
+    </div>
+    <div class="accordion-item">
+      <h2 class="accordion-header"><button class="accordion-button collapsed fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#comp-body" data-action="load-companies">${bi("buildings")}&nbsp; Top tech companies in India · careers pages</button></h2>
+      <div id="comp-body" class="accordion-collapse collapse" data-bs-parent="#sites"><div class="accordion-body">
+        <div class="d-flex flex-wrap gap-2 mb-2"><input type="search" class="form-control form-control-sm w-auto flex-grow-1" id="comp-q" placeholder="Filter companies…">
+          <select class="form-select form-select-sm w-auto" id="comp-show"><option value="all">All</option><option value="no">Not searched automatically</option><option value="yes">Searched automatically</option></select></div>
+        <div id="comp-list" class="comp-list small text-body-secondary">Loading…</div></div></div>
     </div></div>
     <div class="d-flex align-items-center gap-2 mb-2 fw-medium" id="count-line"></div>
     <div class="row g-3"><div class="col-lg-5 col-xxl-4" id="list"></div><div class="col-lg-7 col-xxl-8"><div class="detail-col" id="detail-col"></div></div></div>`;
@@ -551,6 +586,7 @@ function renderTracker() {
         <label class="btn btn-sm btn-outline-secondary mb-0" for="import-file">${bi("file-earmark-spreadsheet")} Import Excel / CSV</label>
         <input type="file" id="import-file" class="d-none" accept=".xlsx,.csv">
         <button class="btn btn-sm btn-outline-secondary" data-action="export-csv">${bi("filetype-csv")} Export CSV</button>
+        <button class="btn btn-sm btn-outline-secondary" data-action="cleanup" title="Fix typos and short forms in company and role names">${bi("magic")} Clean up</button>
         ${S.state.mail && S.state.mail.connected ? `<button class="btn btn-sm ${S.state.mail.pending ? "btn-ink" : "btn-outline-secondary"}" data-action="mail-open">${bi("envelope-check")} Email updates${S.state.mail.pending ? ` <span class="badge text-bg-light">${S.state.mail.pending}</span>` : ""}</button>` : ""}
         <button class="btn btn-sm btn-outline-secondary" data-action="backup-now">${bi("shield-check")} Back up</button>
         <a class="btn btn-sm btn-outline-secondary" href="/api/tracker/template.csv">${bi("download")} Template</a>
@@ -562,12 +598,12 @@ function renderTracker() {
       </div></div>
     <div class="collapse mb-3" id="add-app"><div class="card"><div class="card-body p-3">
       <div class="row g-2 align-items-end">
-        <div class="col-md-3"><label class="form-label small fw-semibold mb-1" for="m-company">Company</label><input class="form-control form-control-sm" id="m-company"></div>
-        <div class="col-md-3"><label class="form-label small fw-semibold mb-1" for="m-role">Role</label><input class="form-control form-control-sm" id="m-role"></div>
+        <div class="col-md-3"><label class="form-label small fw-semibold mb-1" for="m-company">Company</label><input class="form-control form-control-sm" id="m-company" list="dl-company" autocomplete="off"></div>
+        <div class="col-md-3"><label class="form-label small fw-semibold mb-1" for="m-role">Role</label><input class="form-control form-control-sm" id="m-role" list="dl-role" autocomplete="off"></div>
         <div class="col-md-2"><label class="form-label small fw-semibold mb-1" for="m-date">Date applied</label><input type="date" class="form-control form-control-sm" id="m-date" value="${today}"></div>
         <div class="col-md-2"><label class="form-label small fw-semibold mb-1" for="m-status">Status</label><select class="form-select form-select-sm" id="m-status">${TRACK.map(s => `<option value="${s}" ${s === "applied" ? "selected" : ""}>${STATUS[s]}</option>`).join("")}</select></div>
         <div class="col-md-2"><label class="form-label small fw-semibold mb-1" for="m-type">Job type</label><input class="form-control form-control-sm" id="m-type" placeholder="Full-time"></div>
-        <div class="col-md-2"><input class="form-control form-control-sm" id="m-location" placeholder="Location"></div>
+        <div class="col-md-2"><input class="form-control form-control-sm" id="m-location" placeholder="Location (India if blank)"></div>
         <div class="col-md-2"><input class="form-control form-control-sm" id="m-source" placeholder="Source (LinkedIn, Referral…)"></div>
         <div class="col-md-3"><input class="form-control form-control-sm" id="m-url" placeholder="Job link"></div>
         <div class="col-md-3"><input class="form-control form-control-sm" id="m-contact" placeholder="Contact"></div>
@@ -700,7 +736,7 @@ function openEdit(id) {
   const val = k => k === "applied_on" ? appliedDate(j) : k === "last_update" ? (j.last_update || "").slice(0, 10) : (j[k] || "");
   $("#edit-body").innerHTML = `<h5 class="mb-3">Edit application</h5>
     <div class="row g-2">
-      ${EDIT_FIELDS.map(([k, label, w, type]) => `<div class="col-md-${w}"><label class="form-label small fw-semibold mb-1" for="e-${k}">${label}</label><input type="${type || "text"}" class="form-control form-control-sm" id="e-${k}" value="${esc(val(k))}"></div>`).join("")}
+      ${EDIT_FIELDS.map(([k, label, w, type]) => `<div class="col-md-${w}"><label class="form-label small fw-semibold mb-1" for="e-${k}">${label}</label><input type="${type || "text"}" class="form-control form-control-sm" id="e-${k}" value="${esc(val(k))}" ${k === "company" ? 'list="dl-company" autocomplete="off"' : k === "title" ? 'list="dl-role" autocomplete="off"' : ""}></div>`).join("")}
       <div class="col-md-4"><label class="form-label small fw-semibold mb-1" for="e-status">Status</label><select class="form-select form-select-sm" id="e-status">${TRACK.map(o => `<option value="${o}" ${o === j.status ? "selected" : ""}>${STATUS[o]}</option>`).join("")}</select></div>
       <div class="col-12"><label class="form-label small fw-semibold mb-1" for="e-notes">Notes</label><textarea class="form-control form-control-sm" id="e-notes" rows="3">${esc(j.notes)}</textarea></div>
     </div>
@@ -751,8 +787,75 @@ async function addApplication() {
   try {
     const r = await api("/api/tracker", { method: "POST", json: body });
     await loadAll();
-    toast(r.possible_duplicate ? `Added. Looks similar to: ${r.possible_duplicate}` : `Added ${body.role} at ${body.company}`, r.possible_duplicate ? 8000 : 3000);
+    const h = r.name_hint || {};
+    if (h.company || h.title) {
+      const fix = {}; if (h.company) fix.company = h.company; if (h.title) fix.title = h.title;
+      toast(`Added. Did you mean ${[h.title, h.company].filter(Boolean).join(" at ")}?`, 9000, { label: "Use it", run: async () => {
+        await api(`/api/jobs/${r.id}`, { method: "PATCH", json: fix }); await loadAll(); toast("Name corrected.", 2000); } });
+    } else toast(r.possible_duplicate ? `Added. Looks similar to: ${r.possible_duplicate}` : `Added ${body.role} at ${body.company}`, r.possible_duplicate ? 8000 : 3000);
   } catch (e) { toast(e.message, 6000); }
+}
+
+// ---------------------------------------------------------------- cleanup: suggest, tick, apply (with undo)
+
+async function openCleanup() {
+  let r;
+  try { r = await api("/api/cleanup/suggest"); } catch (e) { toast(e.message, 6000); return; }
+  S.cleanup = r.suggestions;
+  showCleanup(r.checked);
+}
+
+function showCleanup(checked) {
+  const list = S.cleanup || [];
+  const group = (field, title) => {
+    const items = list.map((s, i) => [s, i]).filter(([s]) => s.field === field);
+    if (!items.length) return "";
+    return `<div class="chart-title mt-3">${title} <span class="text-body-secondary fw-normal">${items.length}</span></div><div class="vstack gap-1">
+      ${items.map(([s, i]) => `<label class="prov d-flex gap-2 align-items-center"><input type="checkbox" class="form-check-input mt-0" data-clean="${i}" checked>
+        <span class="text-body-secondary text-decoration-line-through minw-10">${esc(s.old)}</span>${bi("arrow-right")}
+        <input class="form-control form-control-sm flex-grow-1" data-clean-new="${i}" value="${esc(s.new)}" aria-label="New name">
+        <span class="badge text-bg-light border small">${esc(s.reason)}</span></label>`).join("")}</div>`;
+  };
+  $("#ai-modal-body").innerHTML = `<div class="d-flex align-items-center gap-2 mb-1"><h5 class="mb-0">${bi("magic")} Clean up names</h5>
+      <button class="btn btn-sm btn-outline-secondary ms-auto" data-action="cleanup-ai" title="Sends only the company and role names to your AI provider">${bi("stars")} Ask AI for the rest</button></div>
+    <div class="small text-body-secondary">Checked ${checked ?? ""} entries. Untick anything that's wrong, edit the new name if needed, then apply. Nothing changes until you apply, and you can undo.</div>
+    ${list.length ? group("company", "Companies") + group("title", "Roles") + `<div class="d-flex gap-2 mt-3 sticky-bottom bg-body py-2">
+        <button class="btn btn-sm btn-ink" data-action="cleanup-apply">${bi("check2")} Apply ticked</button>
+        <button class="btn btn-sm btn-outline-secondary" data-action="cleanup-none">Untick all</button></div>`
+      : `<div class="text-body-secondary py-3">Everything already looks tidy.</div>`}`;
+  bootstrap.Modal.getOrCreateInstance($("#ai-modal")).show();
+}
+
+async function cleanupApply() {
+  const changes = $$("[data-clean]").filter(c => c.checked).map(c => {
+    const i = Number(c.dataset.clean); return { ...S.cleanup[i], new: $(`[data-clean-new="${i}"]`).value.trim() };
+  });
+  if (!changes.length) { toast("Nothing ticked."); return; }
+  try {
+    const r = await api("/api/cleanup/apply", { method: "POST", json: { changes } });
+    bootstrap.Modal.getInstance($("#ai-modal"))?.hide();
+    await loadAll();
+    toast(`Cleaned ${r.applied} name${r.applied === 1 ? "" : "s"}`, 8000, { label: "Undo", run: async () => {
+      await api("/api/tracker/undo", { method: "POST", json: { rows: r.undo } }); await loadAll(); toast("Restored.", 2500); } });
+  } catch (e) { toast(e.message, 6000); }
+}
+
+async function cleanupAI() {
+  if (needAI()) return;
+  const tr = S.jobs.filter(j => TRACK.includes(j.status));
+  const have = new Set((S.cleanup || []).map(s => s.field + "|" + s.id));
+  const left = tr.filter(j => !have.has("company|" + j.id) || !have.has("title|" + j.id));
+  const btn = $("[data-action=cleanup-ai]"); btn.disabled = true; btn.innerHTML = `${bi("arrow-repeat", "spin")} Asking…`;
+  try {
+    const r = await api("/api/cleanup/ai", { method: "POST", json: { companies: left.map(j => j.company), roles: left.map(j => j.title) } });
+    let added = 0;
+    for (const j of left) {
+      for (const [field, map, val] of [["company", r.companies, j.company], ["title", r.roles, j.title]]) {
+        if (map[val] && !have.has(field + "|" + j.id)) { S.cleanup.push({ id: j.id, field, old: val, new: map[val], reason: "AI" }); have.add(field + "|" + j.id); added++; }
+      }
+    }
+    showCleanup(tr.length); toast(added ? `AI suggested ${added} more` : "AI found nothing else to fix", 3000);
+  } catch (e) { toast(e.message, 7000); btn.disabled = false; }
 }
 
 async function importTracker() {
@@ -769,12 +872,25 @@ async function importTracker() {
 
 // ---------------------------------------------------------------- profile
 
+async function scanResumes(path) {
+  try {
+    const r = path ? await api("/api/resumes/folder", { method: "PUT", json: { path } }) : await api("/api/resumes/scan", { method: "POST" });
+    S.state.profile = r.profile;
+    if (currentView() === "profile") renderProfile();
+    const msg = r.error ? `${r.error}: ${r.folder}` : `Resumes folder: ${r.added} added, ${r.removed} removed${r.skipped ? ` · ${r.skipped} over the limit of 10` : ""}${r.errors && r.errors.length ? " · " + r.errors.join("; ") : ""}`;
+    if (path || r.added || r.removed || r.error || (r.errors && r.errors.length)) toast(msg, 6000);
+  } catch (e) { toast(e.message, 6000); }
+}
+
 function renderProfile() {
+  if (!S.scanned) { S.scanned = true; scanResumes(); }
   const p = S.state.profile, prefs = p.preferences;
   const resumes = p.resumes.map(r => `<div class="card lift mt-3"><div class="card-body">
       <div class="d-flex flex-wrap justify-content-between gap-2 align-items-baseline"><h5 class="mb-0">${esc(r.label)}</h5>
         ${r.ai_read ? '<span class="badge rounded-pill tag-ink">✓ Read by AI</span>' : `<span class="badge rounded-pill tag-line">${S.state.ai.configured ? "AI reads it on the next search" : "Keyword parsing only"}</span>`}</div>
-      <div class="small text-body-secondary mb-2">${esc(r.filename)}</div>
+      <div class="small text-body-secondary mb-2 d-flex flex-wrap align-items-center gap-2">${r.from_folder ? bi("folder2") : bi("upload")} ${esc(r.filename)}
+        <select class="form-select form-select-sm w-auto ms-auto" data-resume-role="${r.id}" aria-label="Target role for this resume">
+          ${p.target_roles.map(o => `<option ${o === r.target_role ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></div>
       ${r.headline ? `<div class="fw-semibold">${esc(r.headline)}</div>` : ""}
       <div class="small mt-1">${r.education.map(e => esc([e.degree, e.field].filter(Boolean).join(" in ") + (e.school ? ", " + e.school : "") + (e.end ? ` (${e.end})` : ""))).join("<br>")}</div>
       <div class="small text-body-secondary my-2">${r.fulltime_months} months full-time · ${r.internship_months} months internships · aimed at ${esc(r.roles.map(kindText).join(" + "))}</div>
@@ -786,7 +902,12 @@ function renderProfile() {
   $("#app").innerHTML = `<div class="hero my-4 rise"><h1 class="mb-1">Your <span class="text-accent">profile</span></h1><div class="text-body-secondary">${esc(p.name || "Add a resume to begin")}${p.email ? " · " + esc(p.email) : ""}</div></div>
     <div class="row g-4">
       <div class="col-lg-7"><div class="card rise"><div class="card-body p-4">
-        <h4>Resumes</h4><p class="text-body-secondary">Add each version you use, like one for SDE and one for ML. Every job is matched against all of them, and the job page names the one to send.</p>
+        <h4>Resumes <span class="small text-body-secondary fw-normal">${p.resumes.length}/${p.max_resumes}</span></h4><p class="text-body-secondary">Keep up to ${p.max_resumes} role resumes in your folder and tag each with its target role. Jobs, cover letters and cold emails pick the matching one automatically.</p>
+        <div class="input-group input-group-sm mb-3"><span class="input-group-text">${bi("folder2-open")}</span>
+          <input class="form-control" id="resume-dir" value="${esc(p.resumes_dir)}" aria-label="Resumes folder">
+          <button class="btn btn-outline-secondary" data-action="resume-dir">Use folder</button>
+          <button class="btn btn-outline-secondary" data-action="resume-scan">${bi("arrow-repeat")} Rescan</button>
+          <button class="btn btn-outline-secondary" data-action="resume-open">Open</button></div>
         <label class="drop d-grid text-center p-4 gap-1" id="drop" for="resume-file"><span class="fs-2 text-accent">${bi("cloud-arrow-up")}</span><span class="fw-semibold">Drop a resume here or click to choose</span><span class="small text-body-secondary">PDF or DOCX, up to 5 MB</span></label>
         <input type="file" id="resume-file" class="d-none" accept=".pdf,.docx,.txt">
         <div class="row g-2 mt-2 align-items-center"><div class="col-sm-7"><input type="text" class="form-control" id="resume-label" placeholder="Name it (optional), e.g. SDE resume"></div>
@@ -971,8 +1092,14 @@ const hasData = list => list.some(x => x.n) && !(list.length === 1 && /not given
 async function renderDashboard() {
   (S.charts || []).forEach(c => c.destroy()); S.charts = [];
   let st;
-  try { st = await api("/api/stats"); } catch (e) { $("#app").innerHTML = `<div class="alert alert-danger mt-4">${esc(e.message)}</div>`; return; }
-  const k = st.kpis, td = st.today;
+  S.dRange = S.dRange || "30d"; S.dGrain = S.dGrain || "auto";
+  S.dCompany = S.dCompany || ""; S.dFamily = S.dFamily || "";
+  const qs = new URLSearchParams({ range: S.dRange, grain: S.dGrain, company: S.dCompany, family: S.dFamily });
+  try { st = await api(`/api/stats?${qs}`); } catch (e) { $("#app").innerHTML = `<div class="alert alert-danger mt-4">${esc(e.message)}</div>`; return; }
+  const noOthers = list => list.filter(x => x.label !== "Others");      // a lumped "Others" bar dwarfs the real ones
+  const k = st.kpis, td = st.today, ex = st.explore;
+  const seg = (attr, cur, opts) => `<div class="btn-group btn-group-sm" role="group">${opts.map(([v, l]) => `<button class="btn ${v === cur ? "btn-ink" : "btn-outline-secondary"}" data-${attr}="${v}">${l}</button>`).join("")}</div>`;
+  const toneIc = { good: "graph-up-arrow", warn: "exclamation-triangle", info: "lightbulb" };
   const tile = (n, label, sub) => `<div class="col-6 col-md-3 col-xl"><div class="fact tile"><div class="num">${n}</div><small>${label}</small>${sub ? `<div class="tile-sub">${sub}</div>` : ""}</div></div>`;
   const card = (id, title, cls = "col-lg-6", h = "chart-md") => `<div class="${cls}"><div class="card h-100"><div class="card-body p-3"><div class="chart-title">${title}</div><div class="${h}"><canvas id="${id}"></canvas></div></div></div></div>`;
   const ins = S.insights || {};
@@ -985,6 +1112,21 @@ async function renderDashboard() {
         <button class="btn btn-sm btn-outline-secondary" data-action="test-reminder" title="Reminders come at 1 pm and 6 pm while the app is open, and with the 9 am / 9 pm search">${bi("bell")} Test reminder</button>
         <a class="btn btn-sm btn-outline-secondary" href="#/tracker">${bi("table")} Table</a>
       </div></div>
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3 dash-filters">
+      ${seg("drange", S.dRange, [["7d", "7 days"], ["30d", "30 days"], ["90d", "90 days"], ["12m", "12 months"], ["all", "All time"]])}
+      ${seg("dgrain", S.dGrain, [["auto", "Auto"], ["day", "Days"], ["week", "Weeks"], ["month", "Months"]])}
+      <select class="form-select form-select-sm w-auto" id="d-company" aria-label="Filter by company"><option value="">All companies</option>
+        ${st.options.companies.map(c => `<option ${c === S.dCompany ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
+      <select class="form-select form-select-sm w-auto" id="d-family" aria-label="Filter by role"><option value="">All roles</option>
+        ${st.options.families.map(c => `<option ${c === S.dFamily ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
+      ${S.dCompany || S.dFamily ? `<button class="btn btn-sm btn-link" data-action="d-clear">Clear filters</button>` : ""}
+      <span class="small text-body-secondary ms-1">${fmtDate(ex.start)} – ${fmtDate(ex.end)} · ${ex.applications} applications · ${ex.found.total} jobs found</span>
+    </div>
+    <div class="oracle mb-3"><div class="d-flex align-items-center gap-2 mb-2"><div class="chart-title mb-0">${bi("eye")} The oracle</div>
+        <span class="small text-body-secondary">patterns found in your own numbers</span>
+        <div class="ms-auto btn-group btn-group-sm"><button class="btn btn-outline-secondary" data-action="oracle-prev" aria-label="Previous">${bi("chevron-left")}</button><button class="btn btn-outline-secondary" data-action="oracle-next" aria-label="Next">${bi("chevron-right")}</button></div></div>
+      <div class="oracle-track" id="oracle-track">${ex.oracle.map(o => `<div class="oracle-card tone-${o.tone}"><div class="oc-ic">${bi(toneIc[o.tone] || "lightbulb")}</div>
+        <div><div class="fw-semibold">${esc(o.title)}</div><div class="small text-body-secondary mt-1">${bi("arrow-return-right")} ${esc(o.tip)}</div></div></div>`).join("")}</div></div>
     <div class="row g-2 mb-3">
       ${tile(`${td.count}<span class="of">/${td.target}</span>`, "today", td.met ? "target met ✓" : `${td.target - td.count} to go`)}
       ${tile(k.this_week, "this week", `${k.avg_per_day_30}/day avg (30d)`)}
@@ -1000,7 +1142,7 @@ async function renderDashboard() {
       <div id="ins-body" class="ins-body">${ins.text ? mdLite(ins.text) : `<span class="text-body-secondary">Sends only the numbers on this page (no company names, notes or contacts) to your AI provider and returns a summary, insights and next steps.</span>`}</div>
     </div></div>
     <div class="row g-3">
-      ${card("c-day", "Applications per day · last 30 days", "col-lg-8")}
+      ${card("c-day", `Activity by ${ex.grain} · applied, replies and jobs found`, "col-lg-8")}
       ${card("c-status", "Status", "col-lg-4")}
       ${card("c-funnel", "Funnel · reached at least this stage")}
       ${card("c-week", "Per week · last 12 weeks")}
@@ -1011,24 +1153,50 @@ async function renderDashboard() {
       ${hasData(st.sources) ? card("c-source", "Where you applied", "col-lg-4") : ""}
       ${hasData(st.locations) ? card("c-loc", "Locations", "col-lg-4") : ""}
       ${hasData(st.job_types) ? card("c-type", "Job type", "col-lg-4") : ""}
-    </div>`;
+      <div class="col-12"><div class="chart-title mt-2 mb-0">${bi("search")} Jobs found in this range <span class="fw-normal text-body-secondary">${ex.found.total}</span></div></div>
+      ${hasData(ex.found.companies) ? card("c-fcomp", "Jobs found by company", "col-lg-6", "chart-lg") : ""}
+      ${hasData(ex.found.roles) ? card("c-frole", "Jobs found by category", "col-lg-3") : ""}
+      ${hasData(ex.found.tiers) ? card("c-ftier", "Jobs found by company tier", "col-lg-3") : ""}
+      <div class="col-12"><div class="chart-title mt-2 mb-0">${bi("reply")} What gets replies</div></div>
+      ${ex.rates.tier.length ? card("c-rtier", "Response rate by company tier", "col-lg-4") : ""}
+      ${ex.rates.role.length ? card("c-rrole", "Response rate by role family", "col-lg-4") : ""}
+      ${ex.rates.source.length ? card("c-rsrc", "Response rate by where you applied", "col-lg-4") : ""}
+      ${ex.wait.some(w => w.n) ? card("c-wait", "Days until a reply", "col-lg-4") : ""}
+      ${ex.company_status.companies.length ? card("c-cstat", "Top companies by outcome", "col-lg-8", "chart-lg") : ""}
+    </div>
+    <button class="btn btn-ink oracle-fab" data-action="oracle-chat-open">${bi("chat-dots")} Ask the oracle</button>
+    <div class="oracle-chat card d-none" id="oracle-chat"><div class="card-body p-0 d-flex flex-column">
+      <div class="d-flex align-items-center gap-2 px-3 py-2 border-bottom"><b>${bi("eye")} Ask the oracle</b><span class="small text-body-secondary">answers from your numbers</span>
+        <button class="btn btn-sm btn-link ms-auto p-0" data-action="oracle-chat-reset" title="Clear the chat">${bi("trash")}</button>
+        <button class="btn-close" data-action="oracle-chat-close" aria-label="Close"></button></div>
+      <div class="oc-msgs flex-grow-1 p-3" id="oc-msgs"></div>
+      <div class="px-3 pb-2 d-flex flex-wrap gap-1">${["Where am I losing?", "What should I apply to this week?", "Compare ML vs SDE", "Which companies should I target?"].map(q => `<button class="btn btn-sm btn-outline-secondary rounded-pill" data-action="oracle-ask" data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>
+      <form class="d-flex gap-2 p-3 pt-1" id="oc-form"><input class="form-control form-control-sm" id="oc-in" placeholder="Ask about your job search…" autocomplete="off"><button class="btn btn-sm btn-ink">${bi("send")}</button></form>
+    </div></div>`;
+  $("#oc-form").addEventListener("submit", e => { e.preventDefault(); oracleAsk($("#oc-in").value); });
+  clearInterval(S.oracleTimer);
+  S.oracleTimer = setInterval(() => { if (currentView() !== "dashboard") return clearInterval(S.oracleTimer); if (!document.querySelector(".oracle:hover")) oracleScroll(1, true); }, 7000);
   if (!window.Chart) { toast("Charts couldn't load.", 5000); return; }
   chartDefaults();
   const ink = cssVar("--jh-ink"), soft = cssVar("--jh-soft");
   const noLegend = { plugins: { legend: { display: false } } };
   const day = st.per_day.map(d => new Date(d.date + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" }));
-  chart("c-day", { type: "bar", data: { labels: day, datasets: [
-      { type: "line", label: "Target", data: st.per_day.map(() => td.target), borderColor: CAT[3], borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0 },
-      { label: "Applications", data: st.per_day.map(d => d.n), backgroundColor: ink, borderRadius: 3, maxBarThickness: 22 }] },
-    options: { plugins: { legend: { position: "bottom" } }, scales: { x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } }, y: { beginAtZero: true, ticks: { precision: 0 } } } } });
+  void day;
+  const per = { day: 1, week: 7, month: 30 }[ex.grain];
+  chart("c-day", { type: "bar", data: { labels: ex.series.map(x => x.label), datasets: [
+      { type: "line", label: "Target", data: ex.series.map(() => td.target * per), borderColor: CAT[3], borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0 },
+      { type: "line", label: "Jobs found", data: ex.series.map(x => x.found), borderColor: CAT[2], backgroundColor: CAT[2], tension: .3, pointRadius: 2 },
+      { label: "Replies", data: ex.series.map(x => x.responded), backgroundColor: CAT[0], borderRadius: 3, maxBarThickness: 22 },
+      { label: "Applications", data: ex.series.map(x => x.applied), backgroundColor: ink, borderRadius: 3, maxBarThickness: 22 }] },
+    options: { plugins: { legend: { position: "bottom" } }, scales: { x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 12 } }, y: { beginAtZero: true, ticks: { precision: 0 } } } } });
   chart("c-status", { type: "doughnut", data: { labels: st.status.map(x => STATUS_LABEL(x.label)), datasets: [{ data: st.status.map(x => x.n), backgroundColor: CAT, borderWidth: 1, borderColor: cssVar("--jh-card") }] },
     options: { cutout: "62%", plugins: { legend: { position: "right" } } } });
   chart("c-funnel", { type: "bar", data: { labels: st.funnel.map(x => x.label), datasets: [{ data: st.funnel.map(x => x.n), backgroundColor: st.funnel.map((_, i) => i ? CAT[i] : ink), borderRadius: 3 }] },
-    options: { indexAxis: "y", ...noLegend, scales: { x: { type: "logarithmic", min: 0.8, ticks: { callback: v => [1, 10, 100, 1000].includes(v) ? v : "" } }, y: { grid: { display: false } } } } });
+    options: { indexAxis: "y", ...noLegend, scales: { x: { beginAtZero: true, ticks: { precision: 0 } }, y: { grid: { display: false } } } } });
   chart("c-week", { type: "line", data: { labels: st.per_week.map(w => new Date(w.week + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" })),
       datasets: [{ data: st.per_week.map(w => w.n), borderColor: ink, backgroundColor: soft, fill: true, tension: .3, pointRadius: 3, pointBackgroundColor: ink }] },
     options: { ...noLegend, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { precision: 0 } } } } });
-  chart("c-company", { type: "bar", data: { labels: st.companies.map(x => x.label), datasets: [{ data: st.companies.map(x => x.n), backgroundColor: ink, borderRadius: 3, maxBarThickness: 18 }] },
+  chart("c-company", { type: "bar", data: { labels: noOthers(st.companies).map(x => x.label), datasets: [{ data: noOthers(st.companies).map(x => x.n), backgroundColor: ink, borderRadius: 3, maxBarThickness: 18 }] },
     options: { indexAxis: "y", ...noLegend, scales: { x: { beginAtZero: true, ticks: { precision: 0 } }, y: { grid: { display: false } } } } });
   chart("c-role", { type: "pie", data: { labels: st.roles.map(x => x.label), datasets: [{ data: st.roles.map(x => x.n), backgroundColor: CAT, borderWidth: 1, borderColor: cssVar("--jh-card") }] },
     options: { plugins: { legend: { position: "right" } } } });
@@ -1036,9 +1204,62 @@ async function renderDashboard() {
   chart("c-weekday", { type: "bar", data: { labels: st.weekday.map(x => x.label), datasets: [{ data: st.weekday.map(x => x.n), backgroundColor: ink, borderRadius: 3 }] },
     options: { ...noLegend, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { precision: 0 } } } } });
   if (hasData(st.sources)) chart("c-source", { type: "doughnut", data: { labels: st.sources.map(x => x.label), datasets: [{ data: st.sources.map(x => x.n), backgroundColor: CAT, borderWidth: 1, borderColor: cssVar("--jh-card") }] }, options: { cutout: "55%", plugins: { legend: { position: "bottom" } } } });
-  if (hasData(st.locations)) chart("c-loc", { type: "bar", data: { labels: st.locations.map(x => x.label), datasets: [{ data: st.locations.map(x => x.n), backgroundColor: CAT[0], borderRadius: 3 }] }, options: { indexAxis: "y", ...noLegend, scales: { x: { beginAtZero: true, ticks: { precision: 0 } }, y: { grid: { display: false } } } } });
+  if (hasData(st.locations)) chart("c-loc", { type: "bar", data: { labels: noOthers(st.locations).map(x => x.label), datasets: [{ data: noOthers(st.locations).map(x => x.n), backgroundColor: CAT[0], borderRadius: 3 }] }, options: { indexAxis: "y", ...noLegend, scales: { x: { beginAtZero: true, ticks: { precision: 0 } }, y: { grid: { display: false } } } } });
   if (hasData(st.job_types)) chart("c-type", { type: "pie", data: { labels: st.job_types.map(x => x.label), datasets: [{ data: st.job_types.map(x => x.n), backgroundColor: CAT, borderWidth: 1, borderColor: cssVar("--jh-card") }] }, options: { plugins: { legend: { position: "bottom" } } } });
+  const hbar = (id, list, color = ink) => chart(id, { type: "bar", data: { labels: list.map(x => x.label), datasets: [{ data: list.map(x => x.n), backgroundColor: color, borderRadius: 3, maxBarThickness: 18 }] },
+    options: { indexAxis: "y", ...noLegend, scales: { x: { beginAtZero: true, ticks: { precision: 0 } }, y: { grid: { display: false } } } } });
+  const rate = (id, list) => chart(id, { type: "bar", data: { labels: list.map(x => x.label), datasets: [{ data: list.map(x => x.rate), backgroundColor: list.map((_, i) => CAT[i % CAT.length]), borderRadius: 3, maxBarThickness: 26 }] },
+    options: { ...noLegend, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${c.raw}% of ${list[c.dataIndex].n} applications` } } },
+      scales: { x: { grid: { display: false }, ticks: { autoSkip: false, maxRotation: 30 } }, y: { beginAtZero: true, ticks: { callback: v => v + "%" } } } } });
+  const pie = (id, list) => chart(id, { type: "doughnut", data: { labels: list.map(x => x.label), datasets: [{ data: list.map(x => x.n), backgroundColor: CAT, borderWidth: 1, borderColor: cssVar("--jh-card") }] },
+    options: { cutout: "55%", plugins: { legend: { position: "bottom" } } } });
+  if (hasData(ex.found.companies)) hbar("c-fcomp", noOthers(ex.found.companies), CAT[0]);
+  if (hasData(ex.found.roles)) pie("c-frole", ex.found.roles);
+  if (hasData(ex.found.tiers)) pie("c-ftier", ex.found.tiers);
+  if (ex.rates.tier.length) rate("c-rtier", ex.rates.tier);
+  if (ex.rates.role.length) rate("c-rrole", ex.rates.role);
+  if (ex.rates.source.length) rate("c-rsrc", ex.rates.source);
+  if (ex.wait.some(w => w.n)) hbar("c-wait", ex.wait, CAT[4]);
+  const cs = ex.company_status;
+  if (cs.companies.length) chart("c-cstat", { type: "bar", data: { labels: cs.companies, datasets: cs.statuses.map((s, i) => ({ label: STATUS_LABEL(s), data: cs.data[i], backgroundColor: i ? CAT[i] : ink, borderRadius: 2, maxBarThickness: 18 })).filter(d => d.data.some(Boolean)) },
+    options: { indexAxis: "y", plugins: { legend: { position: "bottom" } }, scales: { x: { stacked: true, beginAtZero: true, ticks: { precision: 0 } }, y: { stacked: true, grid: { display: false } } } } });
   if (!S.insights) api("/api/ai/insights").then(r => { if (r && r.text) { S.insights = r; $("#ins-body").innerHTML = mdLite(r.text); $("#ins-meta").textContent = `${r.provider} · ${ago(r.at)}`; } }).catch(() => {});
+}
+
+function oracleScroll(dir, wrap = false) {
+  const t = $("#oracle-track"); if (!t) return;
+  const step = (t.firstElementChild?.offsetWidth || 300) + 12;
+  if (wrap && dir > 0 && t.scrollLeft + t.clientWidth >= t.scrollWidth - 4) t.scrollTo({ left: 0, behavior: "smooth" });
+  else t.scrollBy({ left: dir * step, behavior: "smooth" });
+}
+
+function drawOracleChat(msgs) {
+  const box = $("#oc-msgs"); if (!box) return;
+  box.innerHTML = msgs.length ? msgs.map(m => `<div class="oc-msg ${m.role}">${m.role === "user" ? esc(m.content) : mdLite(m.content)}</div>`).join("")
+    : `<div class="small text-body-secondary">Ask anything about your search. The oracle sees only your numbers and its findings - no company names, notes or contacts.</div>`;
+  box.scrollTop = box.scrollHeight;
+}
+
+async function oracleAsk(q) {
+  q = (q || "").trim(); if (!q) return;
+  if (needAI()) return;
+  $("#oc-in").value = "";
+  const prev = S.oracleMsgs || [];
+  drawOracleChat([...prev, { role: "user", content: q }, { role: "assistant", content: "…" }]);
+  try { const r = await api("/api/ai/oracle-chat", { method: "POST", json: { message: q } }); S.oracleMsgs = r.messages; drawOracleChat(r.messages); }
+  catch (e) { drawOracleChat(prev); toast(e.message, 8000); }
+}
+
+async function loadCompanies() {
+  if (!S.companies) { try { S.companies = (await api("/api/companies")).companies; } catch (e) { toast(e.message, 5000); return; } }
+  const draw = () => {
+    const q = ($("#comp-q")?.value || "").toLowerCase(), show = $("#comp-show")?.value || "all";
+    const list = S.companies.filter(c => (!q || c.name.toLowerCase().includes(q) || c.tier.toLowerCase().includes(q)) && (show === "all" || (show === "yes") === c.searched));
+    $("#comp-list").innerHTML = `<div class="mb-2">${list.length} companies · ${S.companies.filter(c => c.searched).length} have their job board searched every run (${bi("check2-circle")}); the rest open a careers search.</div>
+      <div class="d-flex flex-wrap gap-1">${list.map(c => `<a class="btn btn-sm btn-outline-secondary rounded-pill" href="${esc(safeUrl(c.url))}" target="_blank" rel="noopener noreferrer" title="${esc(c.tier)}">${c.searched ? bi("check2-circle") + " " : ""}${esc(c.name)}</a>`).join("")}</div>`;
+  };
+  draw();
+  $("#comp-q").oninput = draw; $("#comp-show").onchange = draw;
 }
 
 async function runInsights() {
@@ -1106,7 +1327,7 @@ async function mailReview(apply) {
 }
 
 // one compose window for every "send" in the app; nothing is sent until Send is pressed
-function openCompose({ to = "", text = "", jobId = null, contactId = null } = {}) {
+function openCompose({ to = "", text = "", jobId = null, contactId = null, resumeId = null, queue = null } = {}) {
   const subj = (text.match(/^Subject:\s*(.+)$/mi) || [, ""])[1].trim();
   const body = text.replace(/^Subject:.*$/mi, "").trim();
   const ok = S.state.mail && S.state.mail.connected;
@@ -1114,10 +1335,13 @@ function openCompose({ to = "", text = "", jobId = null, contactId = null } = {}
     ${ok ? `<div class="small text-body-secondary mb-2">From ${esc(S.state.mail.address)}</div>` : `<div class="alert alert-warning py-2 small">Connect Gmail in Settings to send from here, or use "Open in email app".</div>`}
     <div class="vstack gap-2"><input class="form-control form-control-sm" id="cm-to" placeholder="To" value="${esc(to)}">
       <input class="form-control form-control-sm" id="cm-subj" placeholder="Subject" value="${esc(subj)}">
-      <textarea class="form-control letter" id="cm-body" rows="12">${esc(body)}</textarea></div>
+      <textarea class="form-control letter" id="cm-body" rows="12">${esc(body)}</textarea>
+      <div class="input-group input-group-sm"><span class="input-group-text">${bi("paperclip")} Attach</span>
+        <select class="form-select" id="cm-resume"><option value="">No resume</option>${(S.state.profile.resumes || []).map(r => `<option value="${r.id}" ${r.id === resumeId ? "selected" : ""}>${esc(r.filename)} · ${esc(r.target_role)}</option>`).join("")}</select></div></div>
     <div class="d-flex flex-wrap gap-2 mt-3 align-items-center">${ok ? `<button class="btn btn-sm btn-ink" data-action="cm-send" data-job="${jobId || ""}" data-contact="${contactId || ""}">${bi("send")} Send</button>` : ""}
-      <button class="btn btn-sm btn-outline-secondary" data-action="cm-mailto">${bi("envelope-open")} Open in email app</button>
-      <span class="small text-body-secondary ms-auto">Attach your resume in Gmail if the post asks for it.</span></div>`;
+      ${queue ? `<button class="btn btn-sm btn-outline-secondary" data-action="q-skip">${bi("skip-forward")} Skip</button><button class="btn btn-sm btn-outline-danger" data-action="q-stop">${bi("stop-circle")} Stop</button>
+        <span class="small fw-semibold">${queue.i + 1} of ${queue.n}</span>` : ""}
+      <button class="btn btn-sm btn-outline-secondary" data-action="cm-mailto">${bi("envelope-open")} Open in email app</button></div>`;
   bootstrap.Modal.getOrCreateInstance($("#ai-modal")).show();
 }
 
@@ -1126,10 +1350,12 @@ async function composeSend(el) {
   if (!confirm(`Send this email to ${to} from ${S.state.mail.address}?`)) return;
   el.disabled = true;
   try {
-    const r = await api("/api/mail/send", { method: "POST", json: { to, subject, body, job_id: Number(el.dataset.job) || null, contact_id: el.dataset.contact || null } });
+    const resume_id = Number($("#cm-resume")?.value) || null;
+    const r = await api("/api/mail/send", { method: "POST", json: { to, subject, body, job_id: Number(el.dataset.job) || null, contact_id: el.dataset.contact || null, resume_id } });
     if (el.dataset.contact) markContactSent(el.dataset.contact, false);
-    bootstrap.Modal.getInstance($("#ai-modal"))?.hide();
     toast(r.tracked_job_id ? `Sent to ${to} · counted as an application` : `Sent to ${to}`, 4000);
+    if (S.queue) { S.queue.i++; return queueNext(); }
+    bootstrap.Modal.getInstance($("#ai-modal"))?.hide();
     await loadAll();
   } catch (e) { toast(e.message, 9000); el.disabled = false; }
 }
@@ -1143,7 +1369,7 @@ async function renderOutreach() {
       <div class="col-lg-5"><div class="card h-100"><div class="card-body p-3">
         <div class="chart-title">1 · Add screenshots or text</div>
         <label class="drop d-block text-center p-3 mb-2" for="or-files" id="or-drop">${bi("images", "fs-3 d-block mb-1")}<b>Choose screenshots</b> or drop them here<div class="small text-body-secondary">PNG / JPG, several at once · Ctrl+V pastes a screenshot</div></label>
-        <input type="file" id="or-files" class="d-none" multiple accept="image/png,image/jpeg,image/webp">
+        <input type="file" id="or-files" class="d-none" multiple accept="image/png,image/jpeg,image/webp,.pdf,.docx,.txt">
         <div id="or-shots" class="d-flex flex-wrap gap-2 mb-2"></div>
         <textarea class="form-control form-control-sm" id="or-text" rows="5" placeholder="…or paste a LinkedIn post, job ad or email signature"></textarea>
         <button class="btn btn-sm btn-ink mt-2" data-action="or-extract">${bi("magic")} Extract contacts</button> <span class="small text-body-secondary" id="or-status"></span>
@@ -1151,7 +1377,8 @@ async function renderOutreach() {
       <div class="col-lg-7"><div class="card h-100"><div class="card-body p-3">
         <div class="d-flex flex-wrap align-items-center gap-2 mb-2"><div class="chart-title mb-0">2 · Contacts</div><span class="small text-body-secondary" id="or-count"></span>
           <button class="btn btn-sm btn-outline-secondary ms-auto" data-action="or-postings" title="Collect every recruiter / HR email printed in the jobs JobQuest.AI found">${bi("search")} Find in job postings</button>
-          <button class="btn btn-sm btn-outline-secondary" data-action="or-add">${bi("plus-lg")} Add manually</button></div>
+          <button class="btn btn-sm btn-outline-secondary" data-action="or-add">${bi("plus-lg")} Add manually</button>
+          <button class="btn btn-sm btn-ink" data-action="q-start" title="Draft and send to each unsent contact in turn, choosing the right resume for each">${bi("send")} Email them one by one</button></div>
         <div class="d-flex flex-wrap gap-2 mb-2">
           <div class="input-group input-group-sm flex-grow-1 w-auto"><span class="input-group-text">${bi("search")}</span><input type="search" class="form-control" id="or-q" placeholder="Search name, email, company, role…" value="${esc(S.orQ || "")}"></div>
           <select class="form-select form-select-sm w-auto" id="or-show" aria-label="Show"><option value="all">All</option><option value="email">With email</option><option value="unsent">Not sent yet</option><option value="sent">Sent</option></select></div>
@@ -1163,12 +1390,20 @@ async function renderOutreach() {
   const drop = $("#or-drop");
   ["dragover", "dragenter"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
   ["dragleave", "drop"].forEach(t => drop.addEventListener(t, () => drop.classList.remove("over")));
-  drop.addEventListener("drop", e => { e.preventDefault(); addShots([...e.dataTransfer.files].filter(f => f.type.startsWith("image/"))); });
+  drop.addEventListener("drop", e => { e.preventDefault(); addShots([...e.dataTransfer.files]); });
   try { S.orContacts = (await api("/api/outreach")).contacts; } catch { S.orContacts = []; }
   drawContacts();
 }
 
 async function addShots(files) {
+  for (const f of files.filter(f => !f.type.startsWith("image/"))) {          // PDFs / DOCX / TXT: their text goes in the box
+    try {
+      const form = new FormData(); form.append("file", f);
+      const r = await api("/api/ai/context-file", { method: "POST", form });
+      $("#or-text").value = ($("#or-text").value + `\n\n[${r.name}]\n${r.text}`).trim();
+    } catch (e) { toast(e.message, 5000); }
+  }
+  files = files.filter(f => f.type.startsWith("image/"));
   for (const f of files.slice(0, 8 - S.orShots.length)) {
     try { S.orShots.push({ name: f.name || "screenshot.png", data_url: await shrinkImage(f, 1600) }); } catch (e) { toast(e.message, 5000); }
   }
@@ -1220,9 +1455,43 @@ async function orDraft(el) {
   el.disabled = true; el.innerHTML = `<span class="spin">${bi("arrow-repeat")}</span> Drafting…`;
   try {
     const r = await api("/api/ai/outreach-email", { method: "POST", json: { contact: c } });
-    openCompose({ to: c.email, text: r.text, contactId: c.id, jobId: Number(c.job_id) || null });
+    openCompose({ to: c.email, text: r.text, contactId: c.id, jobId: Number(c.job_id) || null, resumeId: r.resume_id });
   } catch (e) { toast(e.message, 9000); }
   el.disabled = false; el.innerHTML = `${bi("stars")} Draft email`;
+}
+
+// One by one: draft for the next unsent contact, show it, wait for Send / Skip / Stop. Every send is still a click.
+async function queueStart() {
+  if (needAI()) return;
+  if (!(S.state.mail && S.state.mail.connected)) { toast("Connect Gmail in Settings first.", 5000); return; }
+  const q = (S.orQ || "").trim().toLowerCase();
+  const ids = (S.orContacts || []).filter(c => c.email && !c.sent_at && (!q || [c.name, c.email, c.company, c.job_role].join(" ").toLowerCase().includes(q))).map(c => c.id);
+  if (!ids.length) { toast("No unsent contacts with an email.", 4000); return; }
+  clearTimeout(orSaveTimer);
+  await api("/api/outreach", { method: "PUT", json: { contacts: S.orContacts } }).catch(() => {});
+  S.queue = { ids, i: 0 };
+  queueNext();
+}
+
+async function queueNext() {
+  const Q = S.queue;
+  if (!Q || Q.i >= Q.ids.length) { queueStop(Q ? `Done · went through ${Q.ids.length}` : ""); return; }
+  const c = S.orContacts.find(x => x.id === Q.ids[Q.i]);
+  if (!c) { Q.i++; return queueNext(); }
+  $("#ai-modal-body").innerHTML = `<div class="py-4 text-center"><span class="spin">${bi("arrow-repeat")}</span> Drafting ${Q.i + 1} of ${Q.ids.length}: ${esc(c.name || c.email)} · ${esc(c.company)}…</div>`;
+  bootstrap.Modal.getOrCreateInstance($("#ai-modal")).show();
+  try {
+    const r = await api("/api/ai/outreach-email", { method: "POST", json: { contact: c } });
+    if (S.queue !== Q) return;
+    openCompose({ to: c.email, text: r.text, contactId: c.id, jobId: Number(c.job_id) || null, resumeId: r.resume_id, queue: { i: Q.i, n: Q.ids.length } });
+  } catch (e) { toast(`${c.email}: ${e.message}`, 7000); Q.i++; queueNext(); }
+}
+
+async function queueStop(msg) {
+  S.queue = null;
+  bootstrap.Modal.getInstance($("#ai-modal"))?.hide();
+  if (msg) toast(msg, 4000);
+  await loadAll();
 }
 
 function markContactSent(id, save = true) {
@@ -1476,6 +1745,12 @@ document.addEventListener("click", async e => {
     return;
   }
   if (e.target.closest("a[href]")) return;
+  const df = e.target.closest("[data-drange],[data-dgrain]");
+  if (df) {
+    if (df.dataset.drange) S.dRange = df.dataset.drange;
+    if (df.dataset.dgrain) S.dGrain = df.dataset.dgrain;
+    return renderDashboard();
+  }
   const tb = e.target.closest("[data-tsort],[data-tstatus],[data-tview]");
   if (tb) {
     const t = S.t;
@@ -1492,11 +1767,30 @@ document.addEventListener("click", async e => {
   switch (el.dataset.action) {
     case "select": return selectJob(id);
     case "refresh": return startRefresh();
+    case "find-mode": return setFindMode(el.dataset.mode);
     case "status": return setStatus(id, el.dataset.status);
     case "upload": return uploadResume();
     case "save-profile": return saveProfile();
     case "add-app": return addApplication();
     case "export-csv": return exportCsv();
+    case "resume-scan": return scanResumes();
+    case "resume-dir": return scanResumes($("#resume-dir").value.trim());
+    case "resume-open": return api("/api/resumes/open-folder", { method: "POST" }).catch(e => toast(e.message, 5000));
+    case "q-start": return queueStart();
+    case "q-skip": if (S.queue) { S.queue.i++; queueNext(); } return;
+    case "q-stop": return queueStop("Stopped");
+    case "d-clear": S.dCompany = ""; S.dFamily = ""; return renderDashboard();
+    case "oracle-prev": return oracleScroll(-1);
+    case "oracle-next": return oracleScroll(1, true);
+    case "oracle-chat-open": $("#oracle-chat").classList.remove("d-none"); el.classList.add("d-none"); drawOracleChat(S.oracleMsgs || []); $("#oc-in").focus(); return;
+    case "oracle-chat-close": $("#oracle-chat").classList.add("d-none"); $(".oracle-fab").classList.remove("d-none"); return;
+    case "oracle-chat-reset": S.oracleMsgs = []; drawOracleChat([]); return api("/api/ai/oracle-chat", { method: "POST", json: { message: "", reset: true } }).catch(() => {});
+    case "oracle-ask": return oracleAsk(el.dataset.q);
+    case "load-companies": return loadCompanies();
+    case "cleanup": return openCleanup();
+    case "cleanup-apply": return cleanupApply();
+    case "cleanup-ai": return cleanupAI();
+    case "cleanup-none": $$("[data-clean]").forEach(c => { c.checked = false; }); return;
     case "backup-now": return backupNow();
     case "restore-backup": return restoreFrom(el.dataset.name);
     case "edit-app": return openEdit(id);
@@ -1603,6 +1897,9 @@ document.addEventListener("change", async e => {
     return renderTrackerBody();
   }
   if (t.id === "bulk-status" && t.value) return bulkStatus(t.value);
+  if (t.id === "d-company" || t.id === "d-family") { S.dCompany = $("#d-company").value; S.dFamily = $("#d-family").value; return renderDashboard(); }
+  if (t.dataset.resumeRole) return api(`/api/resumes/${t.dataset.resumeRole}/role`, { method: "PUT", json: { role: t.value } })
+    .then(r => { S.state.profile = r.profile; toast(`Tagged as ${t.value}`, 2000); }).catch(e => toast(e.message, 5000));
   if (t.id === "or-show") return drawContacts();
   if (t.dataset.action === "track-status") {
     const id = Number(t.closest("[data-id]").dataset.id);

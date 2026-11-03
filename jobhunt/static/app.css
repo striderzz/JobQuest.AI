@@ -441,3 +441,22 @@ footer.container-xxl { padding-top: .75rem !important; padding-bottom: .75rem !i
 .coach { min-height: 0; }
 .hero { margin-bottom: 1rem !important; }
 .tile, .stat { padding: .55rem .85rem !important; }
+
+/* ---- oracle dashboard: insight carousel, chat dock, filters, progress % */
+.progress-pct { min-width: 3.2rem; text-align: right; font-variant-numeric: tabular-nums; }
+.find-group .dropdown-toggle-split { border-left: 1px solid rgba(255, 255, 255, .25); }
+.oracle-track { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: thin; padding-bottom: 4px; }
+.oracle-card { flex: 0 0 min(360px, 85%); scroll-snap-align: start; display: flex; gap: 12px; padding: 14px 16px;
+  background: var(--jh-card); border: 1px solid var(--bs-border-color); border-left: 4px solid var(--jh-ink); border-radius: 8px; }
+.oracle-card .oc-ic { font-size: 1.25rem; color: var(--jh-ink); }
+.oracle-card.tone-good { border-left-color: #54A24B; } .oracle-card.tone-good .oc-ic { color: #54A24B; }
+.oracle-card.tone-warn { border-left-color: #E8A33D; } .oracle-card.tone-warn .oc-ic { color: #E8A33D; }
+.oracle-fab { position: fixed; right: 24px; bottom: 24px; z-index: 1030; border-radius: 999px; box-shadow: 0 6px 20px rgba(0, 0, 0, .25); }
+.oracle-chat { position: fixed; right: 24px; bottom: 24px; z-index: 1035; width: min(420px, calc(100vw - 32px)); height: min(560px, calc(100vh - 120px));
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .3); }
+.oc-msgs { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.oc-msg { padding: 8px 12px; border-radius: 8px; max-width: 92%; font-size: .9rem; }
+.oc-msg.user { align-self: flex-end; background: var(--jh-ink); color: var(--jh-on-ink); }
+.oc-msg.assistant { align-self: flex-start; background: var(--jh-soft); }
+.oc-msg p:last-child, .oc-msg ul:last-child { margin-bottom: 0; }
+@media (max-width: 576px) { .oracle-chat, .oracle-fab { right: 16px; bottom: 16px; } }

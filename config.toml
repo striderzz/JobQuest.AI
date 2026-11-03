@@ -46,21 +46,25 @@ greenhouse = [
   "falconx|FalconX", "fastly", "contentstack", "sumologic|Sumo Logic",
   "stage|STAGE", "thoughtworks|Thoughtworks", "towerresearchcapital|Tower Research Capital", "gravitonresearchcapital|Graviton Research Capital", "squarepointcapital|Squarepoint Capital", "jumptrading|Jump Trading", "worldquant|WorldQuant", "rockstargames|Rockstar Games", "binance|Binance", "anthropic|Anthropic", "scaleai|Scale AI",
   "cockroachlabs|Cockroach Labs", "figma|Figma", "grafanalabs|Grafana Labs", "starburst|Starburst", "vercel|Vercel", "yugabyte|Yugabyte",  # added 2026-10-27: US scale-ups with India roles
+  "nasdaq|Nasdaq", "zuora|Zuora",  # added 2026-11-03: top-India-companies probe
 ]
 lever = [
   "cred|CRED", "meesho", "zeta", "paytm", "mindtickle", "pocketfm|Pocket FM", "fampay|FamPay", "hevodata|Hevo Data",
   "fi|Fi Money",
   "sophos|Sophos",
   "outreach|Outreach",  # added 2026-10-27: US scale-ups with India roles
+  "linkedin|LinkedIn",  # added 2026-11-03
 ]
 ashby = [
   "sarvam|Sarvam AI", "atlan", "openai|OpenAI", "composio", "snowflake", "amplitude", "notion",
   "anyscale|Anyscale", "clickhouse|ClickHouse", "redis|Redis", "temporal|Temporal",  # added 2026-10-27: US scale-ups with India roles
+  "tekion|Tekion",  # added 2026-11-03
 ]
 smartrecruiters = [
   "Swiggy", "BoschGroup|Bosch", "ServiceNow", "Freshworks", "Experian", "NielsenIQ", "Canva", "Continental",
   "Mindtickle", "Unacademy", "Whatfix", "Cars24", "Ubisoft2|Ubisoft", "WesternDigital|Western Digital",
   "Grab",
+  "aristanetworks|Arista Networks", "upstox|Upstox", "ixigo|Ixigo",  # added 2026-11-03
 ]
 # Workday: "host/tenant/site|Name" taken from the careers URL https://<host>.myworkdayjobs.com/<site>
 workday = [

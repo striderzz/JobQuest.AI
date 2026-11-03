@@ -54,6 +54,10 @@ def conn():
         for col, typ in EXTRA_COLUMNS.items():
             if col not in have:
                 c.execute(f"ALTER TABLE jobs ADD COLUMN {col} {typ}")
+        have_r = {r["name"] for r in c.execute("PRAGMA table_info(resumes)")}
+        for col in ("source", "sha", "target_role"):           # resumes folder: original file, its hash, role tag
+            if col not in have_r:
+                c.execute(f"ALTER TABLE resumes ADD COLUMN {col} TEXT DEFAULT ''")
         c.commit()
         _migrated = True
     try:
@@ -79,11 +83,18 @@ def set_setting(key, value):
 
 # ---------------------------------------------------------------- resumes
 
-def add_resume(label, filename, path, parsed, ai):
+def add_resume(label, filename, path, parsed, ai, source="", sha="", target_role=""):
     with conn() as c:
-        cur = c.execute("INSERT INTO resumes(label, filename, path, parsed, ai, added) VALUES(?,?,?,?,?,?)",
-                        (label, filename, str(path), json.dumps(parsed, default=str), json.dumps(ai), now_iso()))
+        cur = c.execute("INSERT INTO resumes(label, filename, path, parsed, ai, added, source, sha, target_role) "
+                        "VALUES(?,?,?,?,?,?,?,?,?)",
+                        (label, filename, str(path), json.dumps(parsed, default=str), json.dumps(ai), now_iso(),
+                         str(source), sha, target_role))
         return cur.lastrowid
+
+
+def set_resume_role(rid, role):
+    with conn() as c:
+        c.execute("UPDATE resumes SET target_role=? WHERE id=?", (role[:80], rid))
 
 
 def update_resume_ai(rid, ai):
@@ -95,7 +106,8 @@ def resumes():
     with conn() as c:
         rows = c.execute("SELECT * FROM resumes ORDER BY id").fetchall()
     return [{"id": r["id"], "label": r["label"], "filename": r["filename"], "path": r["path"],
-             "parsed": json.loads(r["parsed"]), "ai": json.loads(r["ai"]) if r["ai"] else None, "added": r["added"]}
+             "parsed": json.loads(r["parsed"]), "ai": json.loads(r["ai"]) if r["ai"] else None, "added": r["added"],
+             "source": r["source"] or "", "sha": r["sha"] or "", "target_role": r["target_role"] or ""}
             for r in rows]
 
 
@@ -234,6 +246,7 @@ def add_manual(company, role, applied_on, location="", url="", status="applied",
     import uuid
     if status not in STATUSES or not status:
         status = "applied"
+    location = (location or "").strip() or "India"          # every search is India-only, so blank means India
     extra = {k: (v or "") for k, v in (extra or {}).items() if k in EXTRA_COLUMNS}
     when = f"{applied_on}T00:00:00+00:00" if len(applied_on) == 10 else applied_on
     base = dict(key=f"manual|{uuid.uuid4().hex}", source="Added by you", company=company, title=role, cities="[]",

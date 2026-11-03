@@ -1,4 +1,5 @@
 ﻿"""FastAPI app: the JSON API plus the single-page UI in ./static."""
+import json
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -182,6 +183,46 @@ async def upload_resume(file: UploadFile = File(...), label: str = Form("")):
     return {"ai_error": ai_error, "profile": profile.summary()}
 
 
+@app.post("/api/resumes/scan")
+def scan_resumes():
+    return profile.scan_folder(ai.client_from_settings()) | {"profile": profile.summary()}
+
+
+class ResumeFolder(BaseModel):
+    path: str
+
+
+@app.put("/api/resumes/folder")
+def set_resume_folder(body: ResumeFolder):
+    p = Path(body.path.strip().strip('"'))
+    if not p.is_dir():
+        raise HTTPException(400, "That folder doesn't exist.")
+    db.set_setting("resumes_dir", str(p))
+    return scan_resumes()
+
+
+@app.post("/api/resumes/open-folder")
+def open_resume_folder():
+    import os
+    p = Path(profile.resumes_dir())
+    if not p.is_dir():
+        raise HTTPException(400, "That folder doesn't exist.")
+    os.startfile(str(p))                                # Windows: opens Explorer
+    return {"ok": True}
+
+
+class ResumeRole(BaseModel):
+    role: str
+
+
+@app.put("/api/resumes/{rid}/role")
+def set_resume_role(rid: int, body: ResumeRole):
+    if body.role not in profile.TARGET_ROLES:
+        raise HTTPException(400, "Unknown role")
+    db.set_resume_role(rid, body.role)
+    return {"profile": profile.summary()}
+
+
 @app.delete("/api/resumes/{rid}")
 def delete_resume(rid: int):
     path = db.delete_resume(rid)
@@ -223,7 +264,70 @@ def add_application(body: ManualEntry):
                          "next_step": body.next_step.strip(), "contact": body.contact.strip()})
     out = db.public_job(db.get_job(jid))
     out["possible_duplicate"] = db.describe(dup) if dup else None
+    from . import normalize
+    out["name_hint"] = {"company": normalize.company(body.company)[0], "title": normalize.role(body.role)[0]}
     return out
+
+
+# ---------------------------------------------------------------- cleanup (suggest, tick, apply)
+
+@app.get("/api/cleanup/suggest")
+def cleanup_suggest():
+    from . import normalize
+    rows = [r for r in db.list_jobs() if r.get("status") and r["status"] != "hidden"]
+    return {"suggestions": normalize.suggest(rows), "checked": len(rows)}
+
+
+class CleanupApply(BaseModel):
+    changes: list[dict]
+
+
+@app.post("/api/cleanup/apply")
+def cleanup_apply(body: CleanupApply):
+    """Apply only the ticked changes. Returns the rows as they were, so the UI's Undo can put them back."""
+    snaps, done = {}, 0
+    for ch in body.changes[:5000]:
+        field, new = ch.get("field"), str(ch.get("new") or "").strip()
+        try:
+            jid = int(ch.get("id"))
+        except (TypeError, ValueError):
+            continue
+        if field not in ("company", "title") or not new:
+            continue
+        row = db.get_job(jid)
+        if not row:
+            continue
+        snaps.setdefault(jid, dict(row))
+        db.edit_entry(jid, {field: new})
+        done += 1
+    return {"applied": done, "undo": list(snaps.values())}
+
+
+class CleanupAI(BaseModel):
+    companies: list[str] = []
+    roles: list[str] = []
+
+
+@app.post("/api/cleanup/ai")
+def cleanup_ai(body: CleanupAI):
+    """Names only (no notes, contacts or dates) go to the LLM; its answers come back as suggestions to tick."""
+    comps = sorted({c.strip() for c in body.companies if c.strip()})[:150]
+    roles = sorted({r.strip() for r in body.roles if r.strip()})[:150]
+    if not comps and not roles:
+        return {"companies": {}, "roles": {}}
+    system = ("You tidy a job tracker. For each company give its official, commonly used name (fix typos, expand "
+              "well-known short forms, drop 'Pvt Ltd'-style suffixes). For each job title give the full, real-world "
+              "title (e.g. 'mle eng' -> 'Machine Learning Engineer', 'ai engineer' -> 'AI Engineer'), keeping level "
+              "numbers and Intern. If a name is already right or you are not sure, return it unchanged. Reply with "
+              'JSON only: {"companies": {"old": "new"}, "roles": {"old": "new"}}')
+    try:
+        text, used = llm.chat([{"role": "system", "content": system},
+                               {"role": "user", "content": json.dumps({"companies": comps, "roles": roles})}], 2500)
+    except llm.LLMError as e:
+        raise HTTPException(400, str(e))
+    d = _parse_json_obj(text)
+    clean = lambda m, keys: {k: str(v).strip()[:200] for k, v in (m or {}).items() if k in keys and str(v).strip() and str(v).strip() != k}
+    return {"companies": clean(d.get("companies"), set(comps)), "roles": clean(d.get("roles"), set(roles)), "provider": used}
 
 
 @app.post("/api/tracker/import")
@@ -344,6 +448,10 @@ def save_profile(body: Preferences):
 def start_refresh():
     if refresh.PROGRESS.snapshot()["running"]:
         raise HTTPException(409, "A refresh is already running.")
+    try:
+        profile.scan_folder(ai.client_from_settings())     # pick up resumes added to the folder since last time
+    except Exception:
+        pass
     if not db.resumes():
         raise HTTPException(400, "Add your resume on the Profile page first.")
     _start_refresh_thread()
@@ -614,9 +722,71 @@ def chat_clear():
 
 # ---------------------------------------------------------------- dashboard, insights, daily target
 
+@app.get("/api/names")
+def name_suggestions():
+    """Type-ahead lists: known companies and real-world role titles, plus names already in the tracker."""
+    from . import companies, normalize
+    rows = [r for r in db.list_jobs() if r.get("status") and r["status"] != "hidden"]
+    comps = [n for n, _ in companies.parsed()] + [r["company"].strip() for r in rows if r.get("company")]
+    roles = sorted({v for v in normalize.ROLE_SHORT.values()} | set(normalize.COMMON_ROLES)) + \
+        [r["title"].strip() for r in rows if r.get("title")]
+    uniq = lambda xs: list(dict.fromkeys(x for x in xs if x))[:1500]
+    return {"companies": uniq(comps), "roles": uniq(roles)}
+
+
+@app.get("/api/companies")
+def company_directory():
+    from .sources import split_name
+    comp = settings.load_config().get("companies", {})
+    boards = [split_name(e.split("|")[0].split("/")[-1] + ("|" + e.split("|", 1)[1] if "|" in e else ""))[1]
+              for lst in comp.values() for e in lst]
+    if settings.load_config().get("sources", {}).get("amazon"):
+        boards += ["Amazon", "Amazon Web Services"]             # amazon.jobs is searched directly
+    return {"companies": links.company_directory(boards)}
+
+
 @app.get("/api/stats")
-def get_stats():
-    return stats.compute()
+def get_stats(range: str = "", grain: str = "", company: str = "", family: str = ""):
+    if not (range or company or family):
+        return stats.compute()
+    rows = db.list_jobs()
+    picked = stats.filter_rows(rows, "all", company, family)            # one company / role, every date
+    s = stats.compute(rows=stats.filter_rows(picked, range or "all"))   # tiles and charts: inside the range too
+    s["explore"] = stats.explore(rows=picked, rng=range or "all", grain=grain or "auto")
+    s["options"] = stats.options(rows)
+    s["filter"] = {"range": range, "company": company, "family": family}
+    return s
+
+
+class OracleChat(BaseModel):
+    message: str
+    reset: bool = False
+
+
+@app.post("/api/ai/oracle-chat")
+def oracle_chat(body: OracleChat):
+    """The dashboard chatbot: answers from your numbers and the oracle's findings (no names, notes or contacts)."""
+    if body.reset:
+        db.set_setting("oracle_history", [])
+        return {"messages": []}
+    msg = body.message.strip()[:2000]
+    if not msg:
+        raise HTTPException(400, "Ask something first.")
+    ex = stats.explore(rng="all", grain="auto")
+    facts = {"digest": stats.digest(), "findings": ex["oracle"], "response_rate_by": ex["rates"],
+             "days_to_reply": ex["wait"], "jobs_found_by_family": ex["found"]["roles"]}
+    system = ("You are the JobQuest.AI oracle: a sharp, encouraging job-search analyst for an entry-level SDE / ML "
+              "candidate in India. Answer from the numbers below; quote them. Give concrete, prioritised tips. Be brief "
+              "(under 150 words, short bullets). If the numbers can't answer, say what to track.\n\nNUMBERS (JSON):\n" +
+              json.dumps(facts, default=str))
+    history = (db.get_setting("oracle_history") or [])[-10:]
+    try:
+        text, used = llm.chat([{"role": "system", "content": system}] + history + [{"role": "user", "content": msg}], 900)
+    except llm.LLMError as e:
+        raise HTTPException(400, str(e))
+    history = (history + [{"role": "user", "content": msg}, {"role": "assistant", "content": text}])[-20:]
+    db.set_setting("oracle_history", history)
+    return {"messages": history, "provider": used}
 
 
 class Target(BaseModel):
@@ -762,6 +932,16 @@ class MailSend(BaseModel):
     body: str
     job_id: Optional[int] = None
     contact_id: Optional[str] = None
+    resume_id: Optional[int] = None          # attach this resume
+
+
+def _resume_file(rid):
+    """The file to attach: the original in your resumes folder if it's still there, else the app's copy."""
+    r = next((x for x in db.resumes() if x["id"] == rid), None)
+    if not r:
+        return None
+    src = Path(r["source"]) if r["source"] else None
+    return str(src) if src and src.is_file() else r["path"]
 
 
 def count_cold_email(job_id=None, contact_id=None, to=""):
@@ -801,7 +981,8 @@ def count_cold_email(job_id=None, contact_id=None, to=""):
 def mail_send(body: MailSend):
     from . import mail
     try:
-        mail.send(body.to, body.subject, body.body, body.job_id)
+        att = [_resume_file(body.resume_id)] if body.resume_id else []
+        mail.send(body.to, body.subject, body.body, body.job_id, [a for a in att if a])
     except mail.MailError as e:
         raise HTTPException(400, str(e))
     jid = count_cold_email(body.job_id, body.contact_id, body.to)
@@ -913,6 +1094,7 @@ class OutreachDraft(BaseModel):
     contact: dict
     tone: str = "warm and professional"
     extra: str = ""
+    resume_id: Optional[int] = None          # None: pick the resume tagged for this role
 
 
 @app.post("/api/ai/outreach-email")
@@ -920,7 +1102,8 @@ def outreach_email(body: OutreachDraft):
     c = {k: str(body.contact.get(k) or "")[:300] for k in ("name", "email", "title", "company", "job_role", "location", "notes")}
     if not (c["company"] or c["job_role"]):
         raise HTTPException(400, "Add at least the company or the role you're writing about.")
-    resume = _resume_text()
+    pick = next((r for r in db.resumes() if r["id"] == body.resume_id), None) or profile.pick_resume(c["job_role"] or c["title"])
+    resume = (pick["parsed"].get("text") or "")[:9000] if pick else ""
     if not resume:
         raise HTTPException(400, "Add your resume on the Profile page first.")
     system = ("Write a short cold email (100-160 words) from an entry-level SDE / ML candidate in India (recent MS "
@@ -937,7 +1120,7 @@ def outreach_email(body: OutreachDraft):
         text, used = llm.chat([{"role": "system", "content": system}, {"role": "user", "content": user}], 700)
     except llm.LLMError as e:
         raise HTTPException(400, str(e))
-    return {"text": text, "provider": used}
+    return {"text": text, "provider": used, "resume_id": pick["id"], "resume": pick["filename"]}
 
 
 @app.post("/api/outreach/from-postings")

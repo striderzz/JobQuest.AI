@@ -13,6 +13,19 @@ ROLES = {
 }
 
 
+def company_directory(boards):
+    """Well-known tech employers in India with their tier, whether JobQuest.AI already searches their board, and a
+    careers search link (a search, not a guessed URL)."""
+    from . import companies, tiers
+    have = {b.lower() for b in boards}
+    out = []
+    for name, aliases in companies.parsed():
+        keys = {name.lower(), *(a.lower() for a in aliases)}
+        out.append({"name": name, "tier": tiers.LABELS[tiers.tier_of(name)], "searched": bool(keys & have),
+                    "url": f"https://www.google.com/search?q={quote_plus(name + ' careers India software engineer jobs')}"})
+    return out
+
+
 def search_links(roles):
     out = []
     for role in roles:
@@ -26,6 +39,10 @@ def search_links(roles):
                     f"&f_E=1%2C2&f_TPR=r86400"},
             {"site": "Naukri", "note": "0 years experience, last day",
              "url": f"https://www.naukri.com/{r['slug']}-jobs?k={quote(q)}&experience=0&jobAge=1"},
+            {"site": "Glassdoor", "note": "India, last 3 days",
+             "url": f"https://www.glassdoor.co.in/Job/jobs.htm?sc.keyword={quote(q)}&locT=N&locId=115&fromAge=3"},
+            {"site": "Amazon Jobs", "note": "India (also searched automatically)",
+             "url": f"https://www.amazon.jobs/en/search?base_query={quote_plus(q)}&country=IND&sort=recent"},
             {"site": "Indeed India", "note": "fresher, last 24 h",
              "url": f"https://in.indeed.com/jobs?q={quote_plus(q + ' fresher')}&l=India&fromage=1"},
             {"site": "Internshala", "note": "fresher jobs",

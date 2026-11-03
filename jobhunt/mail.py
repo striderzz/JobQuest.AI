@@ -254,7 +254,24 @@ def review(msg_ids, apply):
 
 # ---------------------------------------------------------------- sending
 
-def send(to, subject, body, job_id=None):
+def build_message(sender, to, subject, body, attachments=()):
+    """The MIME message; each attachment is a file path (your resume PDF/DOCX)."""
+    import mimetypes
+    from pathlib import Path
+    msg = EmailMessage()
+    msg["From"], msg["To"], msg["Subject"] = sender, to, subject.strip()[:200]
+    msg.set_content(body.strip()[:20000])
+    for a in attachments or ():
+        p = Path(a)
+        if not p.is_file() or p.stat().st_size > 10_000_000:
+            raise MailError(f"Can't attach {p.name}.")
+        ctype = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
+        main, sub = ctype.split("/", 1)
+        msg.add_attachment(p.read_bytes(), maintype=main, subtype=sub, filename=p.name)
+    return msg
+
+
+def send(to, subject, body, job_id=None, attachments=()):
     addr, pw = account()
     if not (addr and pw):
         raise MailError("Connect Gmail in Settings first.")
@@ -263,9 +280,7 @@ def send(to, subject, body, job_id=None):
         raise MailError("Enter one valid recipient address.")
     if not subject.strip() or not body.strip():
         raise MailError("Add a subject and a message.")
-    msg = EmailMessage()
-    msg["From"], msg["To"], msg["Subject"] = addr, to, subject.strip()[:200]
-    msg.set_content(body.strip()[:20000])
+    msg = build_message(addr, to, subject, body, attachments)
     try:
         with smtplib.SMTP_SSL(SMTP_HOST, 465, timeout=30) as s:
             s.login(addr, pw)

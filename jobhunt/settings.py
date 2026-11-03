@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parent.parent
 HOME = Path(os.environ.get("JOBHUNT_HOME", Path.home() / ".jobhuntai"))
 DATA = HOME / "data"
 RESUMES = DATA / "resumes"
+# your role resumes, changeable in Profile; a test or demo home (JOBHUNT_HOME) never reads the real folder
+DEFAULT_RESUMES_DIR = (HOME / "resume-folder") if "JOBHUNT_HOME" in os.environ else Path.home() / "OneDrive" / "Desktop" / "RESUMES_26"
 DB_PATH = DATA / "jobhunt.db"
 ENV_PATH = HOME / ".env"
 
