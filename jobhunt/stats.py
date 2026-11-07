@@ -214,7 +214,7 @@ def explore(today=None, rows=None, rng="30d", grain="day"):
         "range": rng, "grain": grain, "start": start.isoformat(), "end": today.isoformat(), "applications": len(apps),
         "series": [{"label": _label(k, grain), "date": k.isoformat(), "applied": apc.get(k, 0), "responded": rsp.get(k, 0),
                     "found": fnd.get(k, 0)} for k in keys],
-        "found": {"total": len(found), "companies": _top(_names(found), 12),
+        "found": {"total": len(found), "companies": _top(_names(found), MAX_ITEMS),
                   "roles": _top(Counter(role_family(j.get("title")) for j in found), 8),
                   "tiers": [{"label": tiers.LABELS[t], "n": n} for t, n in Counter(tiers.tier_of(j.get("company")) for j in found).most_common()]},
         "rates": {"tier": [x | {"label": tiers.LABELS[x["label"]]} for x in _rate_by(apps, lambda j: tiers.tier_of(j.get("company")))],
@@ -463,7 +463,7 @@ def compute(today=None, rows=None, base=None, span=None):
                     for i, lbl in enumerate(("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"))],
         "status": [{"label": s, "n": status[s]} for s in ("applied", "screening", "oa", "interviewing", "offer", "rejected", "ghosted", "withdrawn") if status[s]],
         "funnel": funnel,
-        "companies": _top(_names(apps), 12),
+        "companies": _top(_names(apps), MAX_ITEMS),
         "roles": _top(Counter(role_family(j.get("title")) for j in apps), 8),
         "sources": _top(Counter((j.get("app_source") or ("JobQuest.AI" if j.get("source") != "Added by you" else "Not given")).strip()
                                 for j in apps), 7),
@@ -490,6 +490,7 @@ METRICS = ("applications", "replies", "reached_screening", "interviews", "offers
            "median_days_to_reply")
 JOB_METRICS = ("jobs", "avg_score", "median_salary_lpa")
 MEASURES = ("days_waiting", "days_to_reply", "applications_per_company", "applications_per_day", "salary_lpa", "match_score")
+MAX_ITEMS = 10          # a chart of names shows the top 10 at most, so it stays readable
 CHART_TYPES = ("bar", "horizontal_bar", "stacked_bar", "grouped_bar", "line", "area", "pie", "doughnut", "polar", "radar", "scatter",
                "histogram", "table", "list", "stat")
 DATASETS = ("applications", "jobs")
@@ -632,12 +633,12 @@ def _build(spec, rows):
     groups = _groups(items, group)
     timeline = group in TIMELINE
     is_table = kind == "table"
-    top = max(1, min(int(spec.get("top") or (60 if is_table else 30 if timeline else 10)), 400 if is_table else 60))
+    top = max(1, min(int(spec.get("top") or (30 if timeline else MAX_ITEMS)), 400 if is_table else 60 if timeline else MAX_ITEMS))
     if timeline or spec.get("sort") == "label":
         keys = sorted(groups, key=(WEEKDAYS.index if group == "weekday" else str))
     else:
         keys = sorted(groups, key=lambda k: (-_metric(metric, groups[k], hist), str(k)))
-    shown, total = keys[:top], len(keys)
+    shown, total = (keys[-top:] if timeline and group != "weekday" else keys[:top]), len(keys)       # a timeline keeps its latest
     if is_table:
         cols = [_pick(m, allowed, "metric") for m in (spec.get("metrics") or allowed)]
         return {"type": "table", "title": title, "columns": [group, *cols], "total": total,
@@ -666,6 +667,27 @@ def query(spec, rows=None):
     out = _build(spec, rows if rows is not None else db.list_jobs())
     out["spec"] = {k: spec[k] for k in SPEC_KEYS if k in spec}
     return out
+
+
+DEFAULT_CHARTS = (
+    {"type": "bar", "title": "Applications by month", "group_by": "month", "metric": "applications", "top": 12},
+    {"type": "line", "title": "Applications by week", "group_by": "week", "metric": "applications", "top": 16},
+    {"type": "stacked_bar", "title": "Status by month", "group_by": "month", "split_by": "status", "metric": "applications", "top": 12},
+    {"type": "doughnut", "title": "Status now", "group_by": "status", "metric": "applications"},
+    {"type": "horizontal_bar", "title": "Top 10 companies", "group_by": "company", "metric": "applications"},
+    {"type": "horizontal_bar", "title": "Top 10 roles", "group_by": "role", "metric": "applications"},
+    {"type": "pie", "title": "Role families", "group_by": "family", "metric": "applications"},
+    {"type": "horizontal_bar", "title": "Top 10 locations", "group_by": "location", "metric": "applications"},
+    {"type": "bar", "title": "Applications by weekday", "group_by": "weekday", "metric": "applications"},
+    {"type": "bar", "title": "Reply rate by company tier", "group_by": "tier", "metric": "reply_rate"},
+    {"type": "bar", "title": "Reply rate by source", "group_by": "source", "metric": "reply_rate"},
+    {"type": "histogram", "title": "Days waiting for a reply", "measure": "days_waiting", "bins": 8},
+)
+
+
+def default_charts(rows=None):
+    rows = rows if rows is not None else db.list_jobs()
+    return [query(spec, rows) for spec in DEFAULT_CHARTS]
 
 
 def chart_options():

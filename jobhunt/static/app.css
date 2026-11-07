@@ -380,7 +380,6 @@ footer.container-xxl { padding-top: .75rem !important; padding-bottom: .75rem !i
 
 /* ---- app shell: left sidebar navigation (Jobright / desktop-app style) with roomy content on wide screens */
 @media (min-width: 992px) {
-  body { padding-left: 224px; }
   .app-nav.navbar { position: fixed; top: 0; left: 0; bottom: 0; width: 224px; padding: 1.4rem 1rem 1rem; flex-direction: column;
     align-items: stretch; flex-wrap: nowrap; border-bottom: 0; border-right: 1px solid var(--bs-border-color); box-shadow: none; z-index: 1030; }
   .app-nav > .container-xxl { flex-direction: column; align-items: stretch; height: 100%; padding: 0; max-width: none; flex-wrap: nowrap; }
@@ -402,7 +401,6 @@ footer.container-xxl { padding-top: .75rem !important; padding-bottom: .75rem !i
   .app-nav #last-run { display: block !important; order: 4; text-align: center; margin: 0 !important; }
   .app-nav .target-pill span { display: inline !important; }
   
-  .refresh-strip { position: fixed; top: 0; left: 224px; right: 0; z-index: 1040; }
   .container-xxl { max-width: 1280px; }
   main#app { background: transparent; border: 0; box-shadow: none; border-radius: 0; padding: 0 2.25rem; margin: 2rem auto 2.5rem; }
   footer.container-xxl { padding: 1rem 2.25rem 2rem !important; border-top: 0 !important; }
@@ -423,11 +421,7 @@ footer.container-xxl { padding-top: .75rem !important; padding-bottom: .75rem !i
   /* a blur filter would make the sidebar the containing block for fixed children; the search progress bar must
      span the content area, so the sidebar uses a plain solid background instead */
   .app-nav.navbar { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--jh-card); }
-  .refresh-strip { position: fixed; top: 0; left: 224px; right: 0; width: auto; z-index: 1040;
-    background: var(--jh-card); border-bottom: 1px solid var(--bs-border-color); box-shadow: var(--jh-shadow); }
-  .refresh-strip .container-xxl { max-width: 1280px; padding: 0 2.25rem; }
 }
-@media (min-width: 992px) { body:has(#progress:not(.d-none)) main#app { margin-top: 5rem; transition: margin-top .2s; } }
 /* theme menu: positioned by CSS (data-bs-display="static") so it always stays on screen */
 .theme-dd { position: relative; }
 .theme-dd .dropdown-menu { right: 0; left: auto; top: calc(100% + .35rem); max-height: min(70vh, 34rem); overflow-y: auto; min-width: 13rem; }
@@ -566,13 +560,9 @@ main#app { margin-top: 1.25rem !important; }
 .draft summary { display: flex; align-items: center; gap: var(--sp-2); padding: .4rem .6rem; cursor: pointer; }
 
 @media (min-width: 992px) {
-  body.nav-slim { padding-left: 64px; }
-  .nav-slim .app-nav.navbar { width: 64px; padding-inline: .5rem; }
   .nav-slim .app-nav .brand-name, .nav-slim .app-nav .nav-text, .nav-slim .app-nav #tabs .badge { display: none !important; }
   .nav-slim .app-nav #tabs .nav-link { justify-content: center; padding-inline: 0; }
-  .nav-slim .refresh-strip { left: 64px; }
   .nav-slim-btn { margin-top: auto; color: var(--bs-secondary-color); }
-  .refresh-strip { position: sticky; left: auto; }
 }
 @media (max-width: 991.98px) {
   .topbar { padding: .5rem .75rem; position: static; }
@@ -612,7 +602,7 @@ main#app { margin-top: 1.25rem !important; }
 
 /* activity calendar, follow-ups, charts from a spec */
 .cal-wrap { overflow-x: auto; }
-.cal { display: grid; grid-template-rows: repeat(7, 13px); grid-auto-flow: column; grid-auto-columns: 13px; gap: 3px; width: max-content; }
+.cal { display: grid; grid-template-rows: repeat(7, 14px); grid-auto-flow: column; grid-auto-columns: minmax(13px, 1fr); gap: 3px; min-width: max-content; }
 .cal i { border-radius: 3px; }
 .cal-c { background: var(--bs-border-color); }
 

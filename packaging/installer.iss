@@ -3,7 +3,7 @@
 ; shortcuts. Uninstalling removes the program but keeps your data in %USERPROFILE%\.jobhuntai.
 
 #define AppName "JobQuest.AI"
-#define AppVersion "3.2.0"
+#define AppVersion "3.2.1"
 #define AppExe "JobQuestAI.exe"
 
 [Setup]

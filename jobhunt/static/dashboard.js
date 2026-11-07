@@ -1,7 +1,7 @@
 "use strict";
 /* Dashboard: every number comes from /api/stats (Python); this file only lays it out. */
 
-const DTABS = [["overview", "Overview", "speedometer2"], ["charts", "My charts", "pin-angle"], ["companies", "Companies", "buildings"], ["roles", "Roles", "person-workspace"],
+const DTABS = [["overview", "Overview", "speedometer2"], ["charts", "Charts", "bar-chart-line"], ["companies", "Companies", "buildings"], ["roles", "Roles", "person-workspace"],
   ["replies", "Replies", "funnel"], ["stats", "More", "three-dots"]];
 const TAB_GROUP = { directory: "companies", found: "stats", usage: "stats" };
 const tabOn = k => (TAB_GROUP[S.dTab] || S.dTab) === k;
@@ -50,9 +50,9 @@ function dataTable(rows, key) {
     return (typeof x === "string" ? x.localeCompare(y) : x - y) * st.dir || a.name.localeCompare(b.name);
   });
   return `<div class="d-flex align-items-center gap-2 mb-2"><div class="input-group input-group-sm table-search"><span class="input-group-text">${bi("search")}</span><input type="search" class="form-control" data-dq="${key}" value="${esc(st.q)}" placeholder="Filter…" aria-label="Filter the table"></div>
-      <span class="small text-body-secondary">${list.length} of ${rows.length}</span><a class="btn btn-sm btn-outline-secondary ms-auto" href="/api/tracker/export.xlsx">${bi("file-earmark-spreadsheet")} Export to Excel</a></div>
+      <span class="small text-body-secondary">Top ${Math.min(10, list.length)} of ${list.length}</span><a class="btn btn-sm btn-outline-secondary ms-auto" href="/api/tracker/export.xlsx">${bi("file-earmark-spreadsheet")} Export to Excel</a></div>
     <div class="card"><div class="table-responsive data-wrap"><table class="table table-sm table-hover align-middle mb-0 data-table"><thead><tr>${TCOLS_D.map(([k, l]) => `<th scope="col" role="button" data-act="d-sort" data-t="${key}" data-k="${k}">${l}${st.k === k ? (st.dir > 0 ? " ▲" : " ▼") : ""}</th>`).join("")}</tr></thead>
-    <tbody>${list.map(r => `<tr data-act="d-drill" data-name="${esc(r.name)}" title="Show these in the Tracker"><th scope="row" class="text-truncate cell-name">${esc(r.name)}</th><td>${r.applied}</td><td>${r.active}</td><td>${r.replies}</td><td>${r.interviews}</td><td>${r.offers}</td><td>${r.rejected}</td><td>${r.ghosted}</td><td>${r.reply_rate}%</td><td>${r.median_wait == null ? "–" : r.median_wait + " d"}</td><td class="text-nowrap">${fmtDate(r.last)}</td></tr>`).join("") || `<tr><td colspan="11" class="text-center text-body-secondary py-4">Nothing matches.</td></tr>`}</tbody></table></div></div>`;
+    <tbody>${list.slice(0, 10).map(r => `<tr data-act="d-drill" data-name="${esc(r.name)}" title="Show these in the Tracker"><th scope="row" class="text-truncate cell-name">${esc(r.name)}</th><td>${r.applied}</td><td>${r.active}</td><td>${r.replies}</td><td>${r.interviews}</td><td>${r.offers}</td><td>${r.rejected}</td><td>${r.ghosted}</td><td>${r.reply_rate}%</td><td>${r.median_wait == null ? "–" : r.median_wait + " d"}</td><td class="text-nowrap">${fmtDate(r.last)}</td></tr>`).join("") || `<tr><td colspan="11" class="text-center text-body-secondary py-4">Nothing matches.</td></tr>`}</tbody></table></div></div>`;
 }
 
 function usageHTML(u) {
@@ -60,7 +60,7 @@ function usageHTML(u) {
   const table = (rows, label, name = x => x) => `<div class="card h-100"><div class="table-responsive"><table class="table table-sm align-middle mb-0 data-table"><thead><tr><th>${label}</th><th>Calls</th><th>Tokens in</th><th>Tokens out</th><th>Cost</th><th>Median time</th></tr></thead>
     <tbody>${rows.map(r => `<tr><th scope="row" class="text-truncate cell-name">${esc(name(r.label))}</th><td>${r.calls}</td><td>${compact(r.tokens_in)}</td><td>${compact(r.tokens_out)}</td><td>${r.unpriced === r.calls ? "price unknown" : usd(r.cost) + (r.unpriced ? " +" : "")}</td><td>${r.median_ms == null ? "–" : (r.median_ms / 1000).toFixed(1) + " s"}</td></tr>`).join("")}</tbody></table></div></div>`;
   return `<div class="kpi-row mb-3">${kpi(usd(u.cost), "cost at list prices", u.unpriced ? `${u.unpriced} calls have no known price` : "")}${kpi(compact(u.tokens_in + u.tokens_out), "tokens", `${compact(u.tokens_in)} in · ${compact(u.tokens_out)} out`)}${kpi(u.calls, "AI calls")}</div>
-    <div class="row g-3">${chartCard("c-use", "Tokens by day", "col-12", "chart-sm")}<div class="col-lg-7">${table(u.by_model, "Model")}</div><div class="col-lg-5">${table(u.by_feature, "Used for", x => FEATURES[x] || x)}</div></div>
+    <div class="row g-3">${chartCard("c-use", "Tokens by day", "col-12", "chart-sm")}<div class="col-xl-7">${table(u.by_model, "Model")}</div><div class="col-xl-5">${table(u.by_feature, "Used for", x => FEATURES[x] || x)}</div></div>
     <div class="small text-body-secondary mt-2">Costs use the list prices in config.toml. Free tiers and local models can cost you less.</div>`;
 }
 
@@ -226,6 +226,7 @@ function afterTab(st) {
   paint($("#dash-body"));
   if (S.dTab === "directory") { if (S.dirList) drawDirectory(); loadDirectory(); }
   if (S.dTab === "charts") loadPins();
+  $(".dash-filters")?.classList.toggle("d-none", S.dTab === "charts");      // the builder has its own choices
   clearInterval(S.oracleTimer);
   if (S.dTab === "overview") {
     S.oracleTimer = setInterval(() => { if (currentView() !== "dashboard") return clearInterval(S.oracleTimer); if (!document.querySelector(".oracle:hover")) oracleScroll(1, true); }, 7000);

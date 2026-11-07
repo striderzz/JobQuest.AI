@@ -1166,6 +1166,7 @@ ORACLE_CHART_TOOL = (
     "chart (at most 6), and the app draws it from the real data: CHART: {json}\n"
     "Never write numbers in the JSON; the app counts them. You can build almost anything by combining these fields:\n"
     '- Grouped: {"type":T,"title":"...","group_by":G,"metric":M,"top":10,"where":{...}}\n'
+    "  Charts of names show the top 10 at most.\n"
     "  T: bar, horizontal_bar, line, area, pie, doughnut, polar, radar, table\n"
     '  Two dimensions: T stacked_bar, grouped_bar, line or area with "split_by":G. Several metrics on one chart: "metrics":[M,M].\n'
     '  G: company, role, family, status, source, location, tier, job_type, weekday, year, quarter, month, week, day\n'
@@ -1210,7 +1211,7 @@ def charts():
             pins.append({"id": p["id"], "chart": stats.query(p["spec"])})
         except (ValueError, TypeError, KeyError):
             pins.append({"id": p["id"], "error": True})
-    return {"options": stats.chart_options(), "pins": pins}
+    return {"options": stats.chart_options(), "pins": pins, "defaults": stats.default_charts()}
 
 
 @app.post("/api/charts/preview")

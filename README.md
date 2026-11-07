@@ -179,7 +179,7 @@ flowchart LR
 
 ## Run it
 
-**Install on Windows (recommended):** download **`JobQuestAI-Setup-3.2.0.exe`** from the
+**Install on Windows (recommended):** download **`JobQuestAI-Setup-3.2.1.exe`** from the
 [latest release](../../releases/latest) and run it.
 - It installs for your user only, with no admin prompt, into `%LOCALAPPDATA%\Programs\JobQuest.AI`.
 - It adds Start menu and optional Desktop shortcuts, and can optionally schedule a job search every 12 hours.

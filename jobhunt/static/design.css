@@ -10,6 +10,7 @@
 /* ---------------------------------------------------------------- 1. tokens */
 :root {
   --rail: 15rem;
+  --rail-slim: 4.5rem;
   --gap: 1rem;
   --pad: 1.25rem;
   --radius-s: .5rem;
@@ -56,15 +57,24 @@ p, li { text-wrap: pretty; }
 
 /* ---------------------------------------------------------------- 3. app shell */
 @media (min-width: 992px) {
-  body { padding-left: calc(var(--rail) + var(--gap)); }
-  body.nav-slim { padding-left: calc(4.5rem + var(--gap)); }
-  .app-nav.navbar {
-    inset: var(--gap) auto var(--gap) var(--gap); width: var(--rail); padding: 1.1rem .8rem .8rem;
+  body { --rail-now: var(--rail); padding-left: calc(var(--rail-now) + var(--gap)); }
+  body.nav-slim { --rail-now: var(--rail-slim); padding-left: calc(var(--rail-now) + var(--gap)); }
+  body .app-nav.navbar {
+    inset: var(--gap) auto var(--gap) var(--gap); width: var(--rail-now); padding: 1.1rem .8rem .8rem;
+    transition: width var(--fast);
     background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-l); box-shadow: var(--lift-1);
   }
-  .refresh-strip { left: calc(var(--rail) + 2 * var(--gap)); right: var(--gap); top: var(--gap); border: 1px solid var(--line); border-radius: var(--radius-m); }
-  .container-xxl { max-width: 84rem; }
-  main#app { padding: 0 1.5rem; margin-top: 1.25rem; }
+  /* search progress floats over the page, clear of the sidebar and the oracle button */
+  body .refresh-strip {
+    position: fixed; inset: auto 13rem var(--gap) calc(var(--rail-now) + 2 * var(--gap) + 1.5rem); z-index: 1040;
+    background: var(--jh-card); border: 1px solid var(--line-strong); border-radius: var(--radius-m); box-shadow: var(--lift-2);
+  }
+  body .refresh-strip .container-xxl { max-width: none; padding: 0 1rem; }
+  /* the page lines up with the top bar at any window width */
+  main#app, footer.container-xxl { max-width: none; margin-inline: 0; }
+  main#app, body:has(#progress:not(.d-none)) main#app { padding: 0 1.5rem; margin-top: 1.25rem; }
+  footer.container-xxl { padding-inline: 1.5rem; }
+  .nav-slim .app-nav.navbar { padding-inline: .6rem; }
 }
 .app-nav { background: var(--surface); }
 .brand-mark { background: none; }
@@ -83,7 +93,7 @@ p, li { text-wrap: pretty; }
 .app-nav #tabs .badge { color: var(--bs-secondary-color); background: var(--line); border: 0; font-weight: 600; }
 
 .topbar {
-  top: var(--gap); margin: var(--gap) 1.5rem 0; padding: .5rem .75rem .5rem 1.1rem; gap: .6rem;
+  z-index: 1031; top: var(--gap); margin: var(--gap) 1.5rem 0; padding: .5rem .75rem .5rem 1.1rem; gap: .6rem;
   background: var(--glass); backdrop-filter: blur(20px) saturate(1.5); border: 1px solid var(--line); border-radius: var(--radius-l); box-shadow: var(--lift-1);
 }
 .page-title { font-size: 1.1rem; letter-spacing: -.015em; }
@@ -97,9 +107,11 @@ p, li { text-wrap: pretty; }
 .lift { transition: border-color var(--fast), box-shadow var(--fast); }
 .lift:hover, .job-card:hover { border-color: var(--line-strong); box-shadow: var(--lift-2); transform: none; }
 .job-card.active, .job-card.selected { border-color: var(--accent-line); box-shadow: var(--lift-1), 0 0 0 1px var(--accent-line); }
-.modal-content, .offcanvas, .dropdown-menu, .oracle-chat {
+.modal-content, .offcanvas, .oracle-chat {
   background: var(--glass); backdrop-filter: blur(24px) saturate(1.5); border: 1px solid var(--line); box-shadow: var(--lift-2);
 }
+/* menus are solid: blur doesn't work inside the blurred top bar, so the page would show through them */
+.dropdown-menu { background: var(--jh-card); border: 1px solid var(--line-strong); box-shadow: var(--lift-2); z-index: 1060; }
 .modal-content, .oracle-chat { border-radius: var(--radius-l); }
 .dropdown-menu { padding: .3rem; border-radius: var(--radius-m); }
 .dropdown-item { border-radius: var(--radius-s); }
@@ -137,18 +149,25 @@ p, li { text-wrap: pretty; }
 .oc-msg.assistant { background: var(--surface-2); border: 1px solid var(--line); }
 .oc-msg.user { background: var(--accent); }
 .oc-chart { padding: .6rem 0 .2rem; }
+.oc-scroll { max-height: 26rem; overflow-y: auto; }
 .oracle-fab { border-radius: var(--radius-full); box-shadow: 0 10px 30px -10px var(--accent); }
 .cal-c { background: var(--line); }
 
 /* ---------------------------------------------------------------- 7. motion and fallbacks */
 #app > * { animation: rise var(--slow) var(--ease) backwards; }
 @supports not (backdrop-filter: blur(1px)) {
-  .topbar, .modal-content, .offcanvas, .dropdown-menu, .oracle-chat { background: var(--jh-card); }
+  .topbar, .modal-content, .offcanvas, .oracle-chat { background: var(--jh-card); }
 }
 @media (max-width: 991.98px) {
-  .topbar { margin: .5rem .75rem 0; top: .5rem; }
+  .topbar { position: relative; margin: .5rem .75rem 0; }
+  /* on a small screen every top bar menu opens full width under the bar, so none can run off the edge */
+  .topbar .dropdown, .topbar .btn-group, .topbar .theme-dd { position: static; }
+  .topbar .dropdown-menu, .topbar .theme-dd .dropdown-menu { position: absolute; inset: calc(100% + .4rem) 0 auto 0; width: auto; min-width: 0; max-height: 70dvh; }
 }
 @media (forced-colors: active) {
   body::before { display: none; }
   .app-nav #tabs .nav-link.active, .dash-tab.on { outline: 2px solid Highlight; }
 }
+
+/* notices sit above the progress bar and the oracle button */
+.toast-container { margin-bottom: 4rem; z-index: 1090; }

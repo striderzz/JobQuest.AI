@@ -3,6 +3,7 @@
    Every number comes from stats.query in Python. */
 
 const ROUND_CHARTS = ["pie", "doughnut", "polar"];
+const LABEL_MAX = 34;       // longer names are cut on the axis; the tooltip shows them in full
 const niceName = s => String(s).replace(/_/g, " ");
 
 function specBody(c, id) {
@@ -14,7 +15,7 @@ function specBody(c, id) {
   }
   const size = (c.points || c.labels).length;
   if (!size) return `<div class="small text-body-secondary">No data for this yet.</div>`;
-  return `<div class="oc-canvas"><canvas id="${id}" role="img" aria-label="${esc(c.title)}"></canvas></div>${c.total > size ? `<div class="small text-body-secondary">Top ${size} of ${c.total}</div>` : ""}`;
+  return `<div class="oc-scroll"><div class="oc-canvas"><canvas id="${id}" role="img" aria-label="${esc(c.title)}"></canvas></div></div>${c.total > size ? `<div class="small text-body-secondary">Top ${size} of ${c.total}</div>` : ""}`;
 }
 
 /* tools: pin (show Pin), unpin (a pin id) */
@@ -31,7 +32,8 @@ function drawSpec(c, id, store) {
   if (!el || !window.Chart) return;
   chartDefaults();
   const C = palette(), surface = cssVar("--jh-card"), t = c.type;
-  const value = { beginAtZero: true }, cat = { grid: { display: false }, ticks: { maxRotation: 0 } };
+  const whole = !/rate|median|avg|salary/.test(c.metric || "");       // counts never show as 0.5
+  const value = { beginAtZero: true, ticks: whole ? { precision: 0 } : {} }, cat = { grid: { display: false }, ticks: { maxRotation: 0 } };
   if (t === "scatter") {
     store.push(new window.Chart(el, { type: "scatter", data: { datasets: [{ data: c.points, backgroundColor: C[0], pointRadius: 4 }] },
       options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: x => `${x.raw.label}: ${x.raw.x}, ${x.raw.y}` } } },
@@ -51,7 +53,9 @@ function drawSpec(c, id, store) {
   const many = series.length > 1;
   const legend = { display: round || many, position: round ? "right" : "bottom" };
   const sideways = t === "horizontal_bar" || (["bar", "stacked_bar", "grouped_bar"].includes(t) && c.labels.length > 6);
-  const scales = round || t === "radar" ? {} : sideways ? { x: { ...value, stacked }, y: { ...cat, stacked, ticks: { autoSkip: false } } }
+  if (sideways) el.parentElement.style.height = `${Math.max(240, c.labels.length * 24 + 50)}px`;     // every label gets its own row
+  const shortLabel = function (v) { const l = String(this.getLabelForValue(v)); return l.length > LABEL_MAX ? l.slice(0, LABEL_MAX - 1) + "…" : l; };
+  const scales = round || t === "radar" ? {} : sideways ? { x: { ...value, stacked }, y: { ...cat, stacked, ticks: { autoSkip: false, callback: shortLabel } } }
     : { x: { ...cat, stacked, ticks: { ...cat.ticks, maxTicksLimit: 10 } }, y: { ...value, stacked } };
   const type = t === "polar" ? "polarArea" : t === "radar" || t === "pie" || t === "doughnut" ? t : line ? "line" : "bar";
   store.push(new window.Chart(el, { type, data: { labels: c.labels, datasets }, options: { indexAxis: sideways ? "y" : "x", plugins: { legend }, scales } }));
@@ -87,7 +91,7 @@ ACT["chart-png"] = el => {
 ACT["chart-pin"] = async el => {
   try {
     await api("/api/charts/pin", { method: "POST", json: { spec: S.specs[el.dataset.spec].spec } });
-    toast("Pinned. Find it under My charts.", 3000);
+    toast("Pinned to the top of Charts.", 3000);
     if (S.dTab === "charts" && currentView() === "dashboard") loadPins();
   } catch (e) { toast(e.message, 6000); }
 };
@@ -95,7 +99,7 @@ ACT["chart-unpin"] = async el => {
   try { await api(`/api/charts/pin/${el.dataset.pin}`, { method: "DELETE" }); loadPins(); } catch (e) { toast(e.message, 6000); }
 };
 
-// ---------------------------------------------------------------- My charts tab
+// ---------------------------------------------------------------- Charts tab
 
 const builderValue = id => $(`#cb-${id}`)?.value || "";
 
@@ -136,9 +140,10 @@ async function builderPreview() {
 }
 
 function chartsTab() {
-  return `<div class="row g-3"><div class="col-lg-4"><div class="card"><div class="card-body p-3"><div class="chart-title">Build a chart</div><div class="row g-2" id="cb-form"></div></div></div></div>
-      <div class="col-lg-8"><div class="card h-100"><div class="card-body p-3" id="cb-out"></div></div></div></div>
-    <div class="chart-title mt-4">Pinned</div><div class="row g-3" id="pin-grid"><div class="col-12"><div class="skel w-50"></div></div></div>`;
+  return `<div class="row g-3"><div class="col-xl-4"><div class="card h-100"><div class="card-body p-3"><div class="chart-title">Build a chart</div><div class="row g-2" id="cb-form"></div></div></div></div>
+      <div class="col-xl-8"><div class="card h-100"><div class="card-body p-3" id="cb-out"></div></div></div></div>
+    <div id="pin-box" class="d-none"><div class="chart-title mt-4">Pinned</div><div class="row g-3" id="pin-grid"></div></div>
+    <div class="chart-title mt-4">Common charts</div><div class="row g-3" id="def-grid"><div class="col-12"><div class="skel w-50"></div></div></div>`;
 }
 
 async function loadPins() {
@@ -147,10 +152,10 @@ async function loadPins() {
   S.chartOptions = r.options;
   const form = $("#cb-form");
   if (form && !form.children.length) {
-    const pick = (id, label, list, extra = "") => `<div class="col-6" data-cb><label class="form-label small mb-0" for="cb-${id}">${label}</label><select class="form-select form-select-sm" id="cb-${id}">${extra}${list.map(v => `<option value="${esc(v)}">${esc(niceName(v))}</option>`).join("")}</select></div>`;
-    form.innerHTML = pick("type", "Chart", r.options.types) + pick("data", "Data", r.options.datasets) + pick("group", "Group by", r.options.groups) + pick("split", "Split by", r.options.groups, `<option value="">None</option>`)
-      + pick("metric", "Show", r.options.metrics.applications) + pick("measure", "Measure", r.options.measures) + pick("top", "How many", ["10", "20", "30", "60"])
-      + `<div class="col-6" data-cb><label class="form-label small mb-0" for="cb-from">Since</label><input type="date" class="form-control form-control-sm" id="cb-from"></div>`;
+    const pick = (id, label, list, extra = "", cols = "col-6") => `<div class="${cols}" data-cb><label class="form-label small mb-0" for="cb-${id}">${label}</label><select class="form-select form-select-sm" id="cb-${id}">${extra}${list.map(v => `<option value="${esc(v)}">${esc(niceName(v))}</option>`).join("")}</select></div>`;
+    form.innerHTML = pick("type", "Chart", r.options.types) + pick("data", "Data", r.options.datasets) + pick("group", "Group by", r.options.groups) + pick("top", "How many", ["10", "5"])
+      + pick("metric", "Show", r.options.metrics.applications, "", "col-12") + pick("measure", "Measure", r.options.measures, "", "col-12") + pick("split", "Split by", r.options.groups, `<option value="">None</option>`, "col-12")
+      + `<div class="col-12" data-cb><label class="form-label small mb-0" for="cb-from">Since</label><input type="date" class="form-control form-control-sm" id="cb-from"></div>`;
     $("#cb-group").value = "month";
     form.addEventListener("change", () => { builderFields(); builderPreview(); });
     builderFields(); builderPreview();
@@ -158,9 +163,11 @@ async function loadPins() {
   const grid = $("#pin-grid");
   if (!grid) return;
   (S.pinCharts || []).forEach(x => x.destroy()); S.pinCharts = [];
-  grid.innerHTML = r.pins.length ? r.pins.map(p => `<div class="col-lg-6"><div class="card h-100"><div class="card-body p-3">${p.error
+  $("#pin-box").classList.toggle("d-none", !r.pins.length);
+  grid.innerHTML = r.pins.map(p => `<div class="col-lg-6"><div class="card h-100"><div class="card-body p-3">${p.error
       ? `<div class="d-flex"><span class="small text-body-secondary me-auto">This chart can't be drawn any more.</span><button class="btn btn-sm btn-link p-0" data-act="chart-unpin" data-pin="${esc(p.id)}">Remove</button></div>`
-      : specCard(p.chart, `pin-${p.id}`, { unpin: p.id })}</div></div></div>`).join("")
-    : `<div class="col-12">${empty("Pin a chart here from the builder or the oracle. It stays up to date.")}</div>`;
+      : specCard(p.chart, `pin-${p.id}`, { unpin: p.id })}</div></div></div>`).join("");
   r.pins.forEach(p => { if (p.chart) drawSpec(p.chart, `pin-${p.id}`, S.pinCharts); });
+  $("#def-grid").innerHTML = r.defaults.map((c, i) => `<div class="col-lg-6 col-xxl-4"><div class="card h-100"><div class="card-body p-3">${specCard(c, `def-${i}`, { pin: true })}</div></div></div>`).join("");
+  r.defaults.forEach((c, i) => drawSpec(c, `def-${i}`, S.pinCharts));
 }

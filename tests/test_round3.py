@@ -1008,6 +1008,19 @@ class AnyChart(unittest.TestCase):
         self.c.delete(f"/api/charts/pin/{pin['id']}")
         self.assertEqual(self.c.get("/api/charts").json()["pins"], [])
 
+    def test_charts_of_names_stop_at_ten_and_timelines_keep_the_latest(self):
+        for i in range(14):
+            add_job(f"Co{i}", "SDE", applied_on=(date.today() - timedelta(days=30 * i)).isoformat())
+        self.assertEqual(len(stats.query({"type": "bar", "group_by": "company", "top": 60})["labels"]), 10)
+        self.assertEqual(len(stats.query({"type": "table", "group_by": "company"})["rows"]), 10)
+        months = stats.query({"type": "bar", "group_by": "month", "top": 3})["labels"]
+        self.assertEqual(months[-1], date.today().strftime("%Y-%m"))
+
+    def test_default_charts_all_build(self):
+        got = stats.default_charts()
+        self.assertEqual(len(got), len(stats.DEFAULT_CHARTS))
+        self.assertTrue(all(len(c.get("labels", [])) <= 16 for c in got))
+
     def test_calendar_follow_ups_and_compare(self):
         cal = stats.calendar()
         self.assertEqual((len(cal["days"]), cal["total"], cal["active_days"]), (182, 4, 4))
