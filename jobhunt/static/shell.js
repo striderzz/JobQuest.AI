@@ -153,6 +153,16 @@ function compareHTML() {
     ${rows ? `<div class="d-flex align-items-center gap-2 mt-2"><label class="small fw-semibold" for="cmp-jobs">Jobs per model</label><input type="number" min="1" max="150" class="form-control form-control-sm target-in" id="cmp-jobs" value="${s.compare_jobs}">
       <button class="btn btn-sm btn-ink" data-act="cmp-save">Save</button></div>` : ""}`;
 }
+ACT["custom-add"] = async el => {
+  const err = $("#cu-err");
+  err.classList.add("d-none"); el.disabled = true; toast("Testing the model…", 20000);
+  try {
+    const data = await api("/api/ai/custom", { method: "POST", json: { label: $("#cu-label").value, base_url: $("#cu-url").value, model: $("#cu-model").value, api_key: $("#cu-key").value } });
+    toast(`Added ${data.model}`, 4000);
+    S.state = await api("/api/state"); renderShell(); renderProviders(data);
+    await loadSwitcher(true); const b = $("#compare-box"); if (b) b.innerHTML = compareHTML();
+  } catch (e) { err.textContent = e.message; err.classList.remove("d-none"); el.disabled = false; toast("That model didn't work.", 3000); }
+};
 ACT["cmp-save"] = async () => {
   const models = $$("[data-cmp]").filter(c => c.checked).map(c => ({ provider: c.dataset.cmp, model: c.dataset.model }));
   try { S.llm = await api("/api/ai/compare", { method: "PUT", json: { models, jobs: Number($("#cmp-jobs").value) } }); toast("Saved. It applies on the next search.", 3000); }

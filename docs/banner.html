@@ -1,29 +1,25 @@
 <!doctype html>
-<!-- Source of docs/social-preview.png (1280x640). Render: msedge --headless=new --window-size=1280,640 --screenshot=social-preview.png banner.html -->
+<!-- Source of docs/social-preview.png (1280x640). GitHub shows it small, so everything here is big and nothing sits near the edges.
+     Render: msedge --headless=new --window-size=1280,640 --screenshot=social-preview.png banner.html -->
 <html lang="en"><head><meta charset="utf-8">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;800&display=swap">
 <style>
+  @font-face { font-family: Montserrat; font-weight: 800; src: url(../jobhunt/static/vendor/fonts/montserrat-800.woff2) format("woff2"); }
+  @font-face { font-family: Montserrat; font-weight: 700; src: url(../jobhunt/static/vendor/fonts/montserrat-700.woff2) format("woff2"); }
   html, body { margin: 0; width: 1280px; height: 640px; overflow: hidden; }
-  body { background: radial-gradient(120% 140% at 0% 0%, #2c2418 0%, #0c0c0f 60%); color: #f4f4f6;
-         font-family: Calibri, "Segoe UI", sans-serif; display: grid; grid-template-columns: 560px 1fr; }
-  .left { padding: 70px 0 0 72px; }
-  .mark { width: 112px; height: 112px; display: block; filter: drop-shadow(0 10px 26px rgba(245,158,11,.35)); }
-  h1 { font-family: Montserrat, sans-serif; font-weight: 800; font-size: 68px; letter-spacing: -1.5px; margin: 34px 0 6px; }
+  body { position: relative; color: #f6f6f8; font-family: Montserrat, "Segoe UI", sans-serif;
+         background: radial-gradient(620px 620px at 300px 320px, rgba(245, 158, 11, .34) 0%, rgba(245, 158, 11, .1) 46%, transparent 72%), #0b0c10; }
+  .logo { position: absolute; left: 76px; top: 100px; width: 440px; height: 440px; filter: drop-shadow(0 22px 50px rgba(0, 0, 0, .65)); }
+  .text { position: absolute; left: 566px; right: 56px; top: 50%; transform: translateY(-50%); }
+  h1 { margin: 0; font-size: 92px; line-height: 1; font-weight: 800; letter-spacing: -3px; white-space: nowrap; }
   h1 span { color: #f59e0b; }
-  .tag { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 24px; color: #c9c9d1; margin-bottom: 30px; }
-  ul { list-style: none; padding: 0; margin: 0; font-size: 22px; line-height: 1.75; color: #dcdce2; }
-  li::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; margin: 0 12px 3px 0; }
-  .shot { margin-top: 64px; border-radius: 14px 0 0 0; overflow: hidden; box-shadow: -20px 20px 60px rgba(0,0,0,.6);
-          border: 1px solid #2c2c33; border-right: 0; border-bottom: 0; }
-  .shot img { display: block; width: 900px; }
+  .tag { margin-top: 26px; font-size: 37px; white-space: nowrap; line-height: 1.2; font-weight: 700; color: #e4e4ea; }
+  .sub { margin-top: 22px; font-size: 26px; white-space: nowrap; line-height: 1.35; font-weight: 700; color: #a4a7b2; }
 </style></head>
 <body>
-  <div class="left">
-    <img class="mark" src="../jobhunt/static/icon.png" alt="">
+  <img class="logo" src="../packaging/logo.png" alt="">
+  <div class="text">
     <h1>JobQuest<span>.AI</span></h1>
     <div class="tag">Your AI co-pilot for the job hunt</div>
-    <ul><li>Resume-matched jobs from 145+ boards</li><li>Compare AI models side by side</li>
-      <li>Analytics, charts and an AI oracle</li><li>Batch cold email, encrypted cloud sync</li></ul>
+    <div class="sub">Find jobs. Track applications. Land interviews.</div>
   </div>
-  <div class="shot"><img src="screenshots/dashboard.png" alt=""></div>
 </body></html>

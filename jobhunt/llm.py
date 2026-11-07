@@ -8,6 +8,8 @@ import json
 import re
 import time
 import urllib.request
+import uuid
+from urllib.parse import urlsplit
 
 from . import db, settings
 
@@ -32,6 +34,7 @@ PROVIDERS = {
     "ollama": ("Local model (Ollama)", "http://127.0.0.1:11434/v1", "llama3.2", None, True, "llama", "ollama.com/download"),
 }
 KEY_VARS = [p[3] for p in PROVIDERS.values() if p[3]]
+BUILT_IN = set(PROVIDERS)
 NO_KEY = "Please add an LLM key: open Settings → AI providers and paste a key for any provider (Gemini, Groq and OpenRouter have free tiers)."
 
 
@@ -51,8 +54,52 @@ class Reply(tuple):
         return r
 
 
+def load_custom():
+    """Bring in models you added yourself. Any OpenAI-compatible service works, so a new one needs no app update."""
+    saved = db.get_setting("llm_custom") or []
+    for pid in set(PROVIDERS) - BUILT_IN - {c["id"] for c in saved}:
+        del PROVIDERS[pid]
+    for c in saved:
+        PROVIDERS[c["id"]] = (c["label"], c["base_url"], c["model"], f"{c['id'].upper()}_API_KEY", False, c["model"], urlsplit(c["base_url"]).hostname or "")
+
+
+def known(pid):
+    load_custom()
+    return pid in PROVIDERS
+
+
+def check_base_url(url):
+    """Your key is sent here, so it must be encrypted unless the service runs on this PC."""
+    u = urlsplit(url)
+    local = u.hostname in ("127.0.0.1", "localhost", "::1")
+    if not u.hostname or u.scheme not in ("http", "https") or (u.scheme == "http" and not local):
+        raise LLMError("Use an https:// address (http:// is only allowed for a service on this PC).")
+
+
+def add_custom(label, base_url, api_key, model):
+    """Save a custom model, keeping it only if it really answers."""
+    label, base_url, model = label.strip()[:40], base_url.strip().rstrip("/"), model.strip()[:120]
+    if not (label and base_url and model):
+        raise LLMError("Add a name, the API address and the model.")
+    check_base_url(base_url)
+    if NOT_CHAT.search(model):
+        raise LLMError(f"{model} isn't a chat model.")
+    saved = db.get_setting("llm_custom") or []
+    if any(c["label"].lower() == label.lower() for c in saved) or any(p[0].lower() == label.lower() for k, p in PROVIDERS.items() if k in BUILT_IN):
+        raise LLMError(f"You already have a model called {label}.")
+    pid = "custom_" + uuid.uuid4().hex[:8]
+    db.set_setting("llm_custom", saved + [{"id": pid, "label": label, "base_url": base_url, "model": model}])
+    load_custom()
+    try:
+        return pid, test(pid, api_key.strip() or "not-needed", model)    # local servers often take no key
+    except LLMError:
+        remove(pid)
+        raise
+
+
 def _pick(key):
     """A saved {provider, model} choice, or None."""
+    load_custom()
     p = db.get_setting(key) or {}
     return p if p.get("provider") in PROVIDERS else None
 
@@ -82,6 +129,7 @@ def task_choice(task):
 def compare_choices():
     if force_choice():
         return []
+    load_custom()
     return [c for c in (db.get_setting("llm_compare") or []) if c.get("provider") in PROVIDERS]
 
 
@@ -154,6 +202,7 @@ def ollama_models(timeout=1.0):
 
 
 def order():
+    load_custom()
     saved = [p for p in (db.get_setting("llm_order") or []) if p in PROVIDERS]
     return saved + [p for p in PROVIDERS if p not in saved]
 
@@ -273,6 +322,12 @@ def test(pid, key=None, model=None):
 def remove(pid):
     var = PROVIDERS[pid][3]
     settings.write_env({k: None for k in (var, _model_var(pid)) if k})
+    if pid not in BUILT_IN:
+        db.set_setting("llm_custom", [c for c in db.get_setting("llm_custom") or [] if c["id"] != pid])
+        for key in ("llm_active", "llm_screen", "llm_force"):
+            if (db.get_setting(key) or {}).get("provider") == pid:
+                db.set_setting(key, None)
+        load_custom()
 
 
 def status():
@@ -287,7 +342,7 @@ def status():
         rows.append({"id": pid, "label": label, "free": free, "key_page": page, "needs_key": bool(var),
                      "ready": pid in ready, "disabled": pid in off, "usable": bool(key) or (pid == "ollama" and bool(have_ollama)),
                      "key_hint": f"…{key[-4:]}" if key and len(key) > 8 else "",
-                     "model": model_for(pid, env), "default_model": default,
+                     "model": model_for(pid, env), "default_model": default, "custom": pid not in BUILT_IN,
                      "local_models": have_ollama if pid == "ollama" else []})
     return {"providers": rows, "active": [p for p in order() if p in ready]}
 

@@ -10,7 +10,7 @@
 
 <h1 align="center">JobQuest.AI</h1>
 
-<p align="center"><b>Hunt jobs like a pack of one.</b><br>
+<p align="center"><b>Turn the job hunt into a quest you win.</b><br>
 Finds entry-level jobs in India, ranks them against your resume with the AI models you choose, tracks every application, and handles the outreach around them.</p>
 
 <p align="center"><a href="../../releases/latest"><b>Download for Windows</b></a> · <a href="#features">Features</a> · <a href="#run-it">Run it</a> · <a href="#how-the-desktop-app-is-built">How it's built</a></p>
@@ -20,7 +20,7 @@ Finds entry-level jobs in India, ranks them against your resume with the AI mode
 | | |
 |---|---|
 | **145+ job boards** | One search across company boards and job APIs, filtered by experience, category, role and 30 tech cities |
-| **10 AI providers** | OpenAI, Claude, Gemini, Groq and more, or a local model. Compare several on the same jobs |
+| **10 AI providers, or add your own** | OpenAI, Claude, Gemini, Groq and more, a local model, or any new OpenAI-compatible service. Compare several on the same jobs |
 | **Real analytics** | Averages, medians, top 10 charts, company tables, and an oracle that draws charts on request |
 | **Careful outreach** | Review every draft, then send a batch with one click, at a safe pace |
 | **Yours and encrypted** | Runs on your PC, keys encrypted, optional sync between PCs through your own MongoDB Atlas |
@@ -110,6 +110,7 @@ Finds entry-level jobs in India, ranks them against your resume with the AI mode
   xAI Grok, Moonshot Kimi, Mistral and OpenRouter, plus a **local model through Ollama**.
 - A **model switcher** in the top bar shows each provider's live status and speed. Dashboard analysis, Cold email and each
   Coach chat can use their own model, or one setting can make a single tested model do everything.
+- **Add your own:** any OpenAI-compatible service works as a custom model, so a new one needs no app update. It's tested before it's saved.
 - Providers can be reordered, disabled without losing their key, and are tried in turn if one fails. With none configured,
   every AI feature says "Please add an LLM key".
 - **Cover letters** from the job description, your resume and any extra files, such as a LinkedIn PDF. They
@@ -214,7 +215,7 @@ Other commands: `build_exe.cmd` builds the exe. `schedule_daily.ps1` registers t
 JobQuest.AI is a FastAPI web app packaged as a native-feeling Windows program.
 
 **1. One-file exe (PyInstaller).** `build_exe.cmd` runs these steps:
-- `packaging/make_icon.py` turns the werewolf logo (`wolf.png`, drawn by `draw_werewolf.py`) into `jobquestai.ico` and the in-app icon.
+- `packaging/make_icon.py` turns the quest trophy logo (`logo.png`, drawn by `draw_trophy.py`) into `jobquestai.ico` and the in-app icon.
 - `python -m PyInstaller --onefile --noconsole --name JobQuestAI` bundles the Python runtime, FastAPI, Uvicorn and every
   library into a single `JobQuestAI.exe` (about 38 MB).
 - `--add-data` packs the web UI (`jobhunt/static`) and `config.toml` inside it, and `--collect-submodules uvicorn` keeps the

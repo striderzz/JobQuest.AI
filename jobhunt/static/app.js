@@ -1079,7 +1079,7 @@ async function renderProviders(data) {
   host.innerHTML = data.providers.map((p, i) => `<div class="prov ${p.ready ? "ready" : ""} ${p.disabled ? "off" : ""}" data-pid="${p.id}">
       <div class="d-flex align-items-center gap-2 flex-wrap">
         <span class="dot ${p.ready ? "on" : ""}" aria-hidden="true"></span><b>${esc(p.label)}</b>
-        ${p.free ? '<span class="badge rounded-pill tag-line">free tier</span>' : ""}
+        ${p.free ? '<span class="badge rounded-pill tag-line">free tier</span>' : ""}${p.custom ? '<span class="badge rounded-pill tag-line">custom</span>' : ""}
         ${p.ready ? `<span class="small text-success fw-semibold">ready${p.key_hint ? " · " + esc(p.key_hint) : ""}</span>` : ""}
         ${p.disabled ? `<span class="small text-body-secondary fw-semibold">disabled${p.key_hint ? " · key kept" : ""}</span>` : ""}
         <span class="ms-auto d-flex align-items-center gap-1">${p.usable ? `<span class="form-check form-switch m-0" title="Turn this model on or off without removing its key"><input class="form-check-input" type="checkbox" role="switch" data-prov-on="${p.id}" ${p.disabled ? "" : "checked"} aria-label="Use ${esc(p.label)}"></span>` : ""}${i ? `<button class="btn btn-sm btn-link p-0" data-action="prov-up" title="Try earlier">${bi("arrow-up")}</button>` : ""}
@@ -1089,8 +1089,15 @@ async function renderProviders(data) {
         ${p.needs_key ? `<div class="col-sm-6"><input type="password" class="form-control form-control-sm" data-pkey autocomplete="off" placeholder="${p.ready ? "saved - leave blank to keep" : "paste API key"}"></div>` : `<div class="col-sm-6 small">${p.local_models.length ? "Installed: " + esc(p.local_models.join(", ")) : "Not running. Install Ollama, then run <code>ollama pull llama3.2</code>."}</div>`}
         <div class="col-sm-3"><input class="form-control form-control-sm" data-pmodel value="${esc(p.model)}" title="Model" aria-label="Model"></div>
         <div class="col-sm-3 d-flex gap-1"><button class="btn btn-sm btn-ink flex-grow-1" data-action="prov-save">Test</button>${p.ready && p.needs_key ? `<button class="btn btn-sm btn-outline-danger" data-action="prov-remove" title="Remove key">${bi("trash")}</button>` : ""}</div>
-      </div><div class="form-text">Get a key: <span class="user-select-all">${esc(p.key_page)}</span></div></div>
-    </div>`).join("");
+      </div><div class="form-text">${p.custom ? "Service" : "Get a key"}: <span class="user-select-all">${esc(p.key_page)}</span></div></div>
+    </div>`).join("") + `<details class="prov" id="custom-box"><summary class="fw-semibold">${bi("plus-lg")} Add a custom model</summary>
+      <p class="small text-body-secondary mt-2 mb-2">For a new model that isn't listed. Any OpenAI-compatible service works: look for its base URL in the provider's API docs. It's tested before it's saved, and the key is encrypted on this PC.</p>
+      <div class="row g-2"><div class="col-sm-6"><input class="form-control form-control-sm" id="cu-label" placeholder="Name, e.g. NewAI" autocomplete="off" aria-label="Name"></div>
+        <div class="col-sm-6"><input class="form-control form-control-sm" id="cu-model" placeholder="Model ID, e.g. newai-1-chat" autocomplete="off" aria-label="Model ID"></div>
+        <div class="col-12"><input class="form-control form-control-sm" id="cu-url" placeholder="Base URL, e.g. https://api.newai.com/v1" autocomplete="off" aria-label="Base URL"></div>
+        <div class="col-12"><input type="password" class="form-control form-control-sm" id="cu-key" placeholder="API key (leave blank for a local server)" autocomplete="off" aria-label="API key"></div>
+        <div class="col-12"><button class="btn btn-sm btn-ink" data-act="custom-add">${bi("plug")} Test and add</button></div>
+        <div class="col-12"><div id="cu-err" class="alert alert-danger py-2 small mb-0 d-none" role="alert"></div></div></div></details>`;
 }
 
 async function providerAction(el, act) {

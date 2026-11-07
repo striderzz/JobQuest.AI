@@ -576,6 +576,72 @@ class RoleFamilies(unittest.TestCase):
         wipe()
 
 
+class CustomModels(unittest.TestCase):
+    BODY = {"label": "NewAI", "base_url": "https://api.newai.example/v1/", "model": "newai-1-chat", "api_key": "secret-custom-key-1"}
+
+    def setUp(self):
+        wipe()
+        for k in ("llm_custom", "llm_force", "llm_active", "llm_disabled", "llm_order"):
+            db.set_setting(k, None)
+        settings.write_env({k: None for k in llm.KEY_VARS})
+        llm.load_custom()
+        self.c = TestClient(api.app)
+
+    def tearDown(self):
+        for c in list(db.get_setting("llm_custom") or []):
+            llm.remove(c["id"])
+        for k in ("llm_custom", "llm_force", "llm_active"):
+            db.set_setting(k, None)
+        llm.load_custom()
+
+    def add(self, **kw):
+        with mock.patch.object(llm, "_complete", side_effect=lambda pid, m, *a, **k: "OK"):
+            return self.c.post("/api/ai/custom", json=self.BODY | kw)
+
+    def test_a_working_model_is_added_and_used(self):
+        r = self.add()
+        self.assertEqual(r.status_code, 200)
+        pid = r.json()["id"]
+        self.assertIn(pid, llm.configured())
+        row = next(p for p in llm.status()["providers"] if p["id"] == pid)
+        self.assertEqual((row["label"], row["custom"], row["ready"], row["model"]), ("NewAI", True, True, "newai-1-chat"))
+        self.assertEqual(llm.PROVIDERS[pid][1], "https://api.newai.example/v1")
+        self.assertEqual(ai.client_for(pid).model, "newai-1-chat")
+        seen = []
+        with mock.patch.object(llm, "_complete", side_effect=lambda p, m, mt, env=None, model=None, feature="chat": seen.append((p, model)) or "hi"):
+            llm.chat([{"role": "user", "content": "x"}])
+        self.assertEqual(seen[0], (pid, "newai-1-chat"))
+
+    def test_the_key_is_encrypted_and_never_returned(self):
+        r = self.add().json()
+        self.assertNotIn("secret-custom-key-1", json.dumps(r))
+        self.assertNotIn(b"secret-custom-key-1", vault.path().read_bytes())
+        self.assertEqual(settings.read_env()[llm.PROVIDERS[r["id"]][3]], "secret-custom-key-1")
+
+    def test_a_model_that_fails_is_not_kept(self):
+        with mock.patch.object(llm, "_complete", side_effect=llm.LLMError("no such model")):
+            r = self.c.post("/api/ai/custom", json=self.BODY)
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(db.get_setting("llm_custom"), [])
+
+    def test_bad_details_are_refused(self):
+        for kw in ({"base_url": "http://api.newai.example/v1"}, {"base_url": "not a url"}, {"model": "text-embedding-3"}, {"label": ""}, {"label": "OpenAI"}):
+            self.assertEqual(self.add(**kw).status_code, 400, kw)
+
+    def test_a_local_server_needs_no_key_or_https(self):
+        r = self.add(base_url="http://127.0.0.1:1234/v1", api_key="")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn(r.json()["id"], llm.configured())
+
+    def test_removing_it_clears_every_choice_that_used_it(self):
+        pid = self.add().json()["id"]
+        db.set_setting("llm_force", {"provider": pid, "model": "newai-1-chat"})
+        self.c.delete(f"/api/ai/providers/{pid}")
+        self.assertFalse(llm.known(pid))
+        self.assertIsNone(llm.force_choice())
+        self.assertNotIn(pid, llm.configured())
+
+
 class AppWindow(unittest.TestCase):
     def test_a_launcher_that_exits_at_once_does_not_stop_the_app(self):
         from jobhunt import desktop

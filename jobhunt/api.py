@@ -635,7 +635,7 @@ def _recheck_count(pid, model):
 
 @app.put("/api/ai/active")
 def ai_active(body: ActiveModel):
-    if body.provider not in llm.PROVIDERS:
+    if not llm.known(body.provider):
         raise HTTPException(404, "Unknown provider")
     if body.provider not in llm.configured():
         raise HTTPException(400, f"{llm.PROVIDERS[body.provider][0]} isn't set up yet.")
@@ -701,7 +701,7 @@ class ProviderEnabled(BaseModel):
 @app.put("/api/ai/providers/{pid}/enabled")
 def ai_provider_enabled(pid: str, body: ProviderEnabled):
     """Switch a provider off without removing its key. Nothing uses it, not even as a fallback."""
-    if pid not in llm.PROVIDERS:
+    if not llm.known(pid):
         raise HTTPException(404, "Unknown provider")
     off = llm.disabled()
     (off.discard if body.enabled else off.add)(pid)
@@ -736,7 +736,7 @@ class ProviderKey(BaseModel):
 
 @app.put("/api/ai/providers/{pid}")
 def ai_provider_save(pid: str, body: ProviderKey):
-    if pid not in llm.PROVIDERS:
+    if not llm.known(pid):
         raise HTTPException(404, "Unknown provider")
     try:
         model = llm.test(pid, (body.api_key or "").strip() or None, (body.model or "").strip() or None)
@@ -747,10 +747,27 @@ def ai_provider_save(pid: str, body: ProviderKey):
 
 @app.delete("/api/ai/providers/{pid}")
 def ai_provider_remove(pid: str):
-    if pid not in llm.PROVIDERS:
+    if not llm.known(pid):
         raise HTTPException(404, "Unknown provider")
     llm.remove(pid)
     return llm.status()
+
+
+class CustomProvider(BaseModel):
+    label: str
+    base_url: str
+    model: str
+    api_key: str = ""
+
+
+@app.post("/api/ai/custom")
+def ai_custom(body: CustomProvider):
+    """Add a model that isn't listed. It's tested first, and only kept if it answers."""
+    try:
+        pid, model = llm.add_custom(body.label, body.base_url, body.api_key, body.model)
+    except llm.LLMError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "id": pid, "model": model, **llm.status()}
 
 
 class ProviderOrder(BaseModel):
@@ -759,7 +776,7 @@ class ProviderOrder(BaseModel):
 
 @app.put("/api/ai/order")
 def ai_order(body: ProviderOrder):
-    db.set_setting("llm_order", [p for p in body.order if p in llm.PROVIDERS])
+    db.set_setting("llm_order", [p for p in body.order if llm.known(p)])
     return llm.status()
 
 
@@ -1013,7 +1030,7 @@ class ConversationEdit(BaseModel):
 def conversation_edit(cid: int, body: ConversationEdit):
     if not db.conversation(cid):
         raise HTTPException(404, "No such conversation")
-    if body.provider and body.provider not in llm.PROVIDERS:
+    if body.provider and not llm.known(body.provider):
         raise HTTPException(400, "Unknown provider")
     db.edit_conversation(cid, title=(body.title or "").strip()[:120] or None, provider=body.provider, model=body.model)
     return _chat_view(cid)
