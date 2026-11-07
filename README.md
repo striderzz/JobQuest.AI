@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/social-preview.png" alt="JobQuest.AI: your AI co-pilot for the job hunt" width="100%"></p>
+﻿<p align="center"><img src="docs/social-preview.png" alt="JobQuest.AI: your AI co-pilot for the job hunt" width="100%"></p>
 
 <p align="center">
   <a href="../../releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/striderzz/JobQuest.AI?style=for-the-badge&color=f59e0b&labelColor=16181d"></a>
@@ -13,7 +13,7 @@
 <p align="center"><b>Turn the job hunt into a quest you win.</b><br>
 Finds entry-level jobs in India, ranks them against your resume with the AI models you choose, tracks every application, and handles the outreach around them.</p>
 
-<p align="center"><a href="../../releases/latest"><b>Download for Windows</b></a> · <a href="#features">Features</a> · <a href="#run-it">Run it</a> · <a href="#how-the-desktop-app-is-built">How it's built</a></p>
+<p align="center"><a href="../../releases/latest"><b>Download for Windows</b></a> Â· <a href="#features">Features</a> Â· <a href="#run-it">Run it</a> Â· <a href="#how-the-desktop-app-is-built">How it's built</a></p>
 
 <p align="center"><img src="docs/screenshots/jobs.png" alt="Jobs ranked against your resume" width="90%"></p>
 
@@ -82,7 +82,7 @@ Finds entry-level jobs in India, ranks them against your resume with the AI mode
 **Tracking and analytics**
 - A tracker with a table or board view, inline status, bulk edit and delete with undo, and Excel / CSV import
   and export.
-- Statuses run Saved → Applied → Screening call → OA / Test → Interview → Offer, plus Rejected, Ghosted and
+- Statuses run Saved â†’ Applied â†’ Screening call â†’ OA / Test â†’ Interview â†’ Offer, plus Rejected, Ghosted and
   Withdrawn.
 - An **oracle dashboard**:
   - Filters by date range (7 days to all time), by day, week or month, and by company and role.
@@ -153,7 +153,7 @@ flowchart LR
   subgraph Desktop["JobQuestAI.exe (PyInstaller)"]
     UI["Single-page UI<br/>Bootstrap 5 + plain JS + Chart.js"] -->|REST / JSON| API["FastAPI app<br/>(local only, strict CSP)"]
     API --> DB[("SQLite<br/>jobs, tracker, settings")]
-    API --> PIPE["Search pipeline<br/>sources → filters → match"]
+    API --> PIPE["Search pipeline<br/>sources â†’ filters â†’ match"]
     API --> LLM["llm.py<br/>provider table + fallback"]
     API --> STATS["stats.py<br/>pure-Python analytics"]
     API --> MAIL["mail.py<br/>SMTP send"]
@@ -162,8 +162,8 @@ flowchart LR
     API --> CLOUD["cloud.py<br/>encrypted snapshots + merge"]
   end
   CLOUD --> ATLAS["Your MongoDB Atlas"]
-  PIPE -->|public ATS APIs| BOARDS["Greenhouse · Lever · Ashby<br/>SmartRecruiters · Workday · Amazon"]
-  LLM --> PROVIDERS["OpenAI · Anthropic · Gemini · Groq · DeepSeek<br/>Grok · Kimi · Mistral · OpenRouter · Ollama"]
+  PIPE -->|public ATS APIs| BOARDS["Greenhouse Â· Lever Â· Ashby<br/>SmartRecruiters Â· Workday Â· Amazon"]
+  LLM --> PROVIDERS["OpenAI Â· Anthropic Â· Gemini Â· Groq Â· DeepSeek<br/>Grok Â· Kimi Â· Mistral Â· OpenRouter Â· Ollama"]
   MAIL --> GMAIL["Gmail"]
   SCHED["Windows Task Scheduler<br/>09:00 / 21:00"] -->|refresh + reminders| PIPE
 ```
@@ -179,11 +179,11 @@ flowchart LR
 
 ## Run it
 
-**Install on Windows (recommended):** download **`JobQuestAI-Setup-3.2.1.exe`** from the
+**Install on Windows (recommended):** download **`JobQuestAI-Setup-3.2.2.exe`** from the
 [latest release](../../releases/latest) and run it.
 - It installs for your user only, with no admin prompt, into `%LOCALAPPDATA%\Programs\JobQuest.AI`.
 - It adds Start menu and optional Desktop shortcuts, and can optionally schedule a job search every 12 hours.
-- Uninstall it from *Settings → Apps* like any other app. Your data in `%USERPROFILE%\.jobhuntai` is kept.
+- Uninstall it from *Settings â†’ Apps* like any other app. Your data in `%USERPROFILE%\.jobhuntai` is kept.
 
 **Portable:** download `JobQuestAI.exe` from the same release and double-click it; there's nothing to install.
 
@@ -239,12 +239,12 @@ JobQuest.AI is a FastAPI web app packaged as a native-feeling Windows program.
 - installs per user with no admin prompt into `%LOCALAPPDATA%\Programs\JobQuest.AI`;
 - adds Start menu and optional Desktop shortcuts;
 - can optionally register the 09:00 / 21:00 job search as a scheduled task;
-- adds a normal uninstaller (*Settings → Apps*) that leaves your data folder alone.
+- adds a normal uninstaller (*Settings â†’ Apps*) that leaves your data folder alone.
 
 ```mermaid
 flowchart LR
   SRC["Python source<br/>jobhunt/ + static UI"] -->|PyInstaller --onefile| EXE["JobQuestAI.exe"]
-  ICON["make_icon.py → .ico"] --> EXE
+  ICON["make_icon.py â†’ .ico"] --> EXE
   EXE -->|Inno Setup| SETUP["JobQuestAI-Setup.exe"]
   EXE -->|on launch| SRV["Uvicorn + FastAPI<br/>127.0.0.1:8000"]
   EXE -->|on launch| WIN["Edge --app window"]

@@ -1,9 +1,9 @@
-; Inno Setup script for JobQuest.AI. Build with build_installer.cmd (needs Inno Setup 6 and a built JobQuestAI.exe).
+﻿; Inno Setup script for JobQuest.AI. Build with build_installer.cmd (needs Inno Setup 6 and a built JobQuestAI.exe).
 ; Installs per user (no admin prompt) into %LOCALAPPDATA%\Programs\JobQuest.AI with Start menu and optional Desktop
 ; shortcuts. Uninstalling removes the program but keeps your data in %USERPROFILE%\.jobhuntai.
 
 #define AppName "JobQuest.AI"
-#define AppVersion "3.2.1"
+#define AppVersion "3.2.2"
 #define AppExe "JobQuestAI.exe"
 
 [Setup]

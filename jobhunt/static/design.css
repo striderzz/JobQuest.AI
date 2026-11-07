@@ -4,7 +4,7 @@
    1. Colour, space, radius and motion come from the tokens below. No raw colours outside the token block.
    2. Everything derives from a skin's --jh-ink, so all skins and the custom palette work with no extra rules.
    3. Hover changes colour or shadow only: nothing zooms, tilts or moves.
-   4. Blur is for a few floating surfaces (top bar, dialogs, chat). Lists use plain translucency, so scrolling stays fast.
+   4. Every surface is solid. Nothing is see-through, so text never shows through a bar, menu, panel or card.
    5. Respect reduced motion, reduced transparency and forced colours. */
 
 /* ---------------------------------------------------------------- 1. tokens */
@@ -26,18 +26,14 @@
   --accent-soft: color-mix(in oklab, var(--accent) 14%, transparent);
   --accent-line: color-mix(in oklab, var(--accent) 38%, transparent);
   --accent-glow: color-mix(in oklab, var(--accent) 30%, transparent);
-  --surface: color-mix(in oklab, var(--jh-card) 86%, transparent);
-  --surface-2: color-mix(in oklab, var(--jh-card-2) 78%, transparent);
-  --glass: color-mix(in oklab, var(--jh-card) 68%, transparent);
+  --surface: var(--jh-card);
+  --surface-2: var(--jh-card-2);
+  --glass: var(--jh-card);
   --line: color-mix(in oklab, var(--bs-body-color) 10%, transparent);
   --line-strong: color-mix(in oklab, var(--bs-body-color) 20%, transparent);
   --sheen: inset 0 1px 0 color-mix(in oklab, var(--bs-body-color) 7%, transparent);
   --lift-1: var(--sheen), 0 1px 2px rgb(0 0 0 / .1), 0 12px 28px -18px rgb(0 0 0 / .4);
   --lift-2: var(--sheen), 0 2px 6px rgb(0 0 0 / .14), 0 24px 56px -22px rgb(0 0 0 / .55);
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  :root { --surface: var(--jh-card); --surface-2: var(--jh-card-2); --glass: var(--jh-card); }
 }
 
 /* ---------------------------------------------------------------- 2. base */
@@ -94,7 +90,7 @@ p, li { text-wrap: pretty; }
 
 .topbar {
   z-index: 1031; top: var(--gap); margin: var(--gap) 1.5rem 0; padding: .5rem .75rem .5rem 1.1rem; gap: .6rem;
-  background: var(--glass); backdrop-filter: blur(20px) saturate(1.5); border: 1px solid var(--line); border-radius: var(--radius-l); box-shadow: var(--lift-1);
+  background: var(--glass); border: 1px solid var(--line); border-radius: var(--radius-l); box-shadow: var(--lift-1);
 }
 .page-title { font-size: 1.1rem; letter-spacing: -.015em; }
 .topbar .pal-btn { padding: .35rem .55rem; background: none; border-color: var(--line); border-radius: var(--radius-s); }
@@ -108,7 +104,7 @@ p, li { text-wrap: pretty; }
 .lift:hover, .job-card:hover { border-color: var(--line-strong); box-shadow: var(--lift-2); transform: none; }
 .job-card.active, .job-card.selected { border-color: var(--accent-line); box-shadow: var(--lift-1), 0 0 0 1px var(--accent-line); }
 .modal-content, .offcanvas, .oracle-chat {
-  background: var(--glass); backdrop-filter: blur(24px) saturate(1.5); border: 1px solid var(--line); box-shadow: var(--lift-2);
+  background: var(--glass); border: 1px solid var(--line); box-shadow: var(--lift-2);
 }
 /* menus are solid: blur doesn't work inside the blurred top bar, so the page would show through them */
 .dropdown-menu { background: var(--jh-card); border: 1px solid var(--line-strong); box-shadow: var(--lift-2); z-index: 1060; }
@@ -155,9 +151,12 @@ p, li { text-wrap: pretty; }
 
 /* ---------------------------------------------------------------- 7. motion and fallbacks */
 #app > * { animation: rise var(--slow) var(--ease) backwards; }
-@supports not (backdrop-filter: blur(1px)) {
-  .topbar, .modal-content, .offcanvas, .oracle-chat { background: var(--jh-card); }
-}
+/* older rules blurred the bars; solid surfaces need none of that */
+.app-nav, .topbar, .modal-content, .offcanvas, .oracle-chat, .refresh-strip { backdrop-filter: none; -webkit-backdrop-filter: none; }
+/* room under the last item, so the oracle button and the progress bar never cover it */
+body main#app, body:has(#progress:not(.d-none)) main#app { padding-bottom: 5.5rem; }
+/* the chat never grows past the window, however short it is */
+.oracle-chat { max-height: calc(100dvh - 2rem); }
 @media (max-width: 991.98px) {
   .topbar { position: relative; margin: .5rem .75rem 0; }
   /* on a small screen every top bar menu opens full width under the bar, so none can run off the edge */
