@@ -50,7 +50,6 @@ def _background(cfg):
         time.sleep(600)
         try:
             api.maybe_auto_refresh(hours)
-            _maybe_mail_sync(hours)
             _maybe_cloud_sync()
             now = datetime.now()
             key = f"{date.today().isoformat()}-{now.hour}"
@@ -59,21 +58,6 @@ def _background(cfg):
                 notify.target_reminder()
         except Exception as e:                     # a reminder must never take the app down
             print(f"background task: {e}")
-
-
-def _maybe_mail_sync(hours):
-    """Check Gmail for application updates as often as jobs refresh. Only proposes changes."""
-    from datetime import datetime, timedelta, timezone
-    from . import db, mail
-    if not mail.connected():
-        return
-    last = db.get_setting("mail_last_sync")
-    if last and datetime.now(timezone.utc) - datetime.fromisoformat(last) < timedelta(hours=hours):
-        return
-    try:
-        mail.sync()
-    except mail.MailError as e:
-        print(f"mail sync: {e}")
 
 
 def _maybe_cloud_sync(force=False):

@@ -462,36 +462,10 @@ class Phase4(unittest.TestCase):
 
 
 class Mail(unittest.TestCase):
-    def test_classify_and_match(self):
-        from jobhunt import mail
-        self.assertEqual(mail.classify("Your application", "Unfortunately we will not be moving forward after the interview"), "rejected")
-        self.assertEqual(mail.classify("Next steps", "Please complete the HackerRank assessment"), "oa")
-        self.assertEqual(mail.classify("Interview invitation", "Please share your availability for"), "interviewing")
-        self.assertEqual(mail.classify("Hello", "Monthly newsletter"), None)
-        companies = {"stripe": "Stripe", "zomato": "Zomato Pvt Ltd"}
-        self.assertEqual(mail.match_company("Stripe Recruiting", "no-reply@greenhouse.io", "Thanks", "", companies), "Stripe")
-        self.assertEqual(mail.match_company("Talent", "jobs@zomato.com", "Update", "", companies), "Zomato Pvt Ltd")
-        self.assertIsNone(mail.match_company("Talent", "x@acme.com", "Update", "", companies))
-
-    def test_proposals_review_and_send(self):
+    def test_send(self):
         from unittest import mock
         from jobhunt import mail
         jid = db.add_manual("Rejecto", "SDE", "2026-10-20")
-        msgs = [{"id": "<m1>", "from_name": "Rejecto Careers", "from": "careers@rejecto.example", "subject": "Your application",
-                 "date": "2026-10-26T10:00:00+00:00", "text": "Unfortunately we decided not to proceed."},
-                {"id": "<m2>", "from_name": "Rejecto Careers", "from": "careers@rejecto.example", "subject": "Thanks for applying",
-                 "date": "2026-10-20T10:00:00+00:00", "text": "Thank you for applying"}]
-        with mock.patch.object(mail, "fetch", return_value=msgs):
-            props = mail.sync()
-        mine = [p for p in props if p["job_id"] == jid]
-        self.assertEqual([(p["msg_id"], p["proposed"]) for p in mine], [("<m1>", "rejected")])   # confirmation skipped
-        self.assertEqual(db.get_job(jid)["status"], "applied")                                    # nothing changed yet
-        self.assertEqual(mail.review({"<m1>"}, True), 1)
-        j = db.get_job(jid)
-        self.assertEqual(j["status"], "rejected")
-        self.assertIn("Email: Your application", j["notes"])
-        with mock.patch.object(mail, "fetch", return_value=msgs):
-            self.assertFalse([p for p in mail.sync() if p["job_id"] == jid])                     # never re-proposed
         c = TestClient(api.app)
         self.assertEqual(c.post("/api/mail/send", json={"to": "a@b.co", "subject": "s", "body": "b"}).status_code, 400)  # not connected
         self.settings_env = __import__("jobhunt.settings", fromlist=["x"])

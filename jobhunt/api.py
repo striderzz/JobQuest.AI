@@ -2,6 +2,7 @@
 import hmac
 import json
 import re
+import secrets
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -81,24 +82,12 @@ def _ai_state(cfg):
 def _mail_state():
     from . import mail
     addr, _ = mail.account()
-    return {"connected": mail.connected(), "address": addr, "last_sync": db.get_setting("mail_last_sync"),
-            "pending": len(db.get_setting("mail_proposals") or [])}
+    return {"connected": mail.connected(), "address": addr}
 
 
 def _cloud_pulled():
     from . import cloud
     return cloud.state()["pulled"]
-
-
-def _setup_needed():
-    """Only a new install sees the setup steps: anyone who already has a resume is past them."""
-    return not db.get_setting("setup_done") and not db.resumes()
-
-
-@app.post("/api/setup/done")
-def setup_done():
-    db.set_setting("setup_done", True)
-    return {"ok": True}
 
 
 @app.get("/api/state")
@@ -117,7 +106,6 @@ def state():
         "target": {"count": stats.today_count(), "target": stats.target()},
         "mail": _mail_state(),
         "cloud_pulled": _cloud_pulled(),
-        "setup": {"needed": _setup_needed()},
     }
 
 
@@ -559,7 +547,6 @@ def set_source_keys(body: SourceKeys):
 
 
 class Preferences(BaseModel):
-    name: Optional[str] = None
     current_city: Optional[str] = None
     phone: Optional[str] = None
     preferred_cities: Optional[list[str]] = None
@@ -1157,6 +1144,9 @@ def get_stats(range: str = "", grain: str = "", company: str = "", family: str =
     s["explore"] = stats.explore(rows=picked, rng=range or "all", grain=grain or "auto")
     s["usage"] = stats.usage(stats.RANGES.get(range or "all"))
     s["options"] = stats.options(rows)
+    s["calendar"] = stats.calendar(picked)
+    s["follow_ups"] = stats.follow_ups(picked)
+    s["compare"] = stats.compare(picked, stats.RANGES.get(range or "all"))
     s["filter"] = {"range": range, "company": company, "family": family}
     return s
 
@@ -1172,16 +1162,24 @@ def tracker_export():
 
 
 ORACLE_CHART_TOOL = (
-    "CHART TOOL: when a chart, table or histogram would help, or the user asks for one, add a line of exactly this form, one "
-    "per chart (at most 3), and the app draws it from the real data: CHART: {json}\n"
-    "Never write numbers in the JSON; the app counts them. Fields:\n"
-    '- bar, pie, line or table: {"type":"bar","title":"...","group_by":G,"metric":M,"top":10,"where":{...}}\n'
-    '  G: company, role, family, status, source, location, tier, job_type, weekday, month, week, day\n'
-    "  M: applications, replies, reached_screening, offers, rejected, ghosted, reply_rate\n"
-    '- histogram: {"type":"histogram","title":"...","measure":X,"bins":8,"where":{...}}\n'
-    "  X: days_waiting, days_to_reply, applications_per_company, applications_per_day, salary_lpa\n"
-    '- where (optional): status, family, tier, source, location, company, role (text in the title), from, to (YYYY-MM-DD)\n'
-    "A table shows every metric, with up to 400 rows. Use line for months, weeks or days. Keep any text short when you draw a chart.")
+    "CHART TOOL: when a chart, table or list would help, or the user asks for one, add a line of exactly this form, one per "
+    "chart (at most 6), and the app draws it from the real data: CHART: {json}\n"
+    "Never write numbers in the JSON; the app counts them. You can build almost anything by combining these fields:\n"
+    '- Grouped: {"type":T,"title":"...","group_by":G,"metric":M,"top":10,"where":{...}}\n'
+    "  T: bar, horizontal_bar, line, area, pie, doughnut, polar, radar, table\n"
+    '  Two dimensions: T stacked_bar, grouped_bar, line or area with "split_by":G. Several metrics on one chart: "metrics":[M,M].\n'
+    '  G: company, role, family, status, source, location, tier, job_type, weekday, year, quarter, month, week, day\n'
+    "  M: applications, replies, reached_screening, interviews, offers, rejected, ghosted, active, reply_rate, median_days_to_reply\n"
+    '- Scatter: {"type":"scatter","title":"...","group_by":G,"x":M,"y":M}\n'
+    '- Histogram: {"type":"histogram","title":"...","measure":X,"bins":8,"where":{...}}\n'
+    "  X: days_waiting, days_to_reply, applications_per_company, applications_per_day, salary_lpa, match_score\n"
+    '- One number: {"type":"stat","title":"...","metric":M,"where":{...}}\n'
+    '- Individual applications: {"type":"list","title":"...","columns":[C],"sort":C,"top":100,"where":{...}}\n'
+    "  C: company, role, status, applied, days_since, location, source, job_type, score, salary_lpa\n"
+    '- Jobs found by search instead of applications: add "dataset":"jobs" and use M: jobs, avg_score, median_salary_lpa\n'
+    "- where (optional): status (one or a list), family, tier, source, location, company, role (text in the title), job_type, "
+    "from, to (YYYY-MM-DD), no_reply (true), min_days_ago (number)\n"
+    "A table shows every metric, with up to 400 rows. Use line or area for time. Keep any text short when you draw a chart.")
 CHART_LINE = re.compile(r"^[ \t*`]*CHART:\s*(\{.*\})[ \t*`]*$", re.M)
 
 
@@ -1196,7 +1194,50 @@ def _oracle_charts(text):
     text = CHART_LINE.sub("", text).strip()
     if failed:
         text += f"\n\n(I couldn't draw {failed} of those charts. Try asking in a different way.)"
-    return text.strip(), charts[:3]
+    return text.strip(), charts[:6]
+
+
+class ChartSpec(BaseModel):
+    spec: dict
+
+
+@app.get("/api/charts")
+def charts():
+    """The chart builder's choices and your pinned charts, recounted from today's data."""
+    pins = []
+    for p in db.get_setting("dash_pins") or []:
+        try:
+            pins.append({"id": p["id"], "chart": stats.query(p["spec"])})
+        except (ValueError, TypeError, KeyError):
+            pins.append({"id": p["id"], "error": True})
+    return {"options": stats.chart_options(), "pins": pins}
+
+
+@app.post("/api/charts/preview")
+def chart_preview(body: ChartSpec):
+    try:
+        return stats.query(body.spec)
+    except (ValueError, TypeError, KeyError) as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/charts/pin")
+def chart_pin(body: ChartSpec):
+    try:
+        stats.query(body.spec)
+    except (ValueError, TypeError, KeyError) as e:
+        raise HTTPException(400, str(e))
+    pins = db.get_setting("dash_pins") or []
+    if len(pins) >= 24:
+        raise HTTPException(400, "You can pin up to 24 charts. Remove one first.")
+    db.set_setting("dash_pins", pins + [{"id": secrets.token_hex(6), "spec": body.spec}])
+    return {"ok": True}
+
+
+@app.delete("/api/charts/pin/{pin}")
+def chart_unpin(pin: str):
+    db.set_setting("dash_pins", [p for p in db.get_setting("dash_pins") or [] if p["id"] != pin])
+    return {"ok": True}
 
 
 class OracleChat(BaseModel):
@@ -1324,7 +1365,7 @@ def cold_email(body: ColdEmail):
             "resume_id": pick["id"], "resume": pick["filename"]}
 
 
-# ---------------------------------------------------------------- Gmail (app password): review-first sync, send on click
+# ---------------------------------------------------------------- Gmail (app password): cold email, sent on click
 
 class MailAccount(BaseModel):
     address: str
@@ -1346,33 +1387,6 @@ def mail_disconnect():
     from . import mail
     mail.disconnect()
     return _mail_state()
-
-
-@app.get("/api/mail")
-def mail_pending():
-    return _mail_state() | {"proposals": db.get_setting("mail_proposals") or []}
-
-
-@app.post("/api/mail/sync")
-def mail_sync():
-    from . import mail
-    try:
-        mail.sync()
-    except mail.MailError as e:
-        raise HTTPException(400, str(e))
-    return mail_pending()
-
-
-class MailReview(BaseModel):
-    ids: list[str]
-    apply: bool = True
-
-
-@app.post("/api/mail/review")
-def mail_review(body: MailReview):
-    from . import mail
-    n = mail.review(set(body.ids), body.apply)
-    return mail_pending() | {"applied": n}
 
 
 class MailSend(BaseModel):

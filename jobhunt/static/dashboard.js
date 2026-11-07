@@ -1,8 +1,12 @@
 "use strict";
 /* Dashboard: every number comes from /api/stats (Python); this file only lays it out. */
 
-const DTABS = [["overview", "Overview", "speedometer2"], ["stats", "Statistics", "calculator"], ["companies", "Companies", "buildings"], ["directory", "Company list", "globe2"], ["roles", "Roles", "person-workspace"],
-  ["replies", "Funnel & replies", "funnel"], ["found", "Jobs found", "search"], ["usage", "AI usage", "cpu"]];
+const DTABS = [["overview", "Overview", "speedometer2"], ["charts", "My charts", "pin-angle"], ["companies", "Companies", "buildings"], ["roles", "Roles", "person-workspace"],
+  ["replies", "Replies", "funnel"], ["stats", "More", "three-dots"]];
+const TAB_GROUP = { directory: "companies", found: "stats", usage: "stats" };
+const tabOn = k => (TAB_GROUP[S.dTab] || S.dTab) === k;
+const subNav = list => `<div class="btn-group btn-group-sm mb-3" role="group">${list.map(([k, l]) => `<button class="btn ${k === S.dTab ? "btn-ink" : "btn-outline-secondary"}" data-act="d-tab" data-k="${k}">${l}</button>`).join("")}</div>`;
+const COMPANY_NAV = [["companies", "Numbers"], ["directory", "Websites"]], MORE_NAV = [["stats", "Statistics"], ["found", "Jobs found"], ["usage", "AI usage"]];
 const STATUS_HUE = { applied: 0, screening: 2, oa: 3, interviewing: 6, offer: 5, rejected: 7, ghosted: 9, withdrawn: 8 };   // colour follows the status, not its rank
 
 const dark = () => document.documentElement.dataset.bsTheme === "dark";
@@ -82,32 +86,50 @@ async function loadDirectory() {
   catch (e) { if ($("#dir-rows")) $("#dir-rows").textContent = e.message; }
 }
 
+function delta(cmp, key) {
+  if (!cmp) return "all time";
+  const [now, before] = cmp[key], d = now - before;
+  return `${d > 0 ? "+" : ""}${d} vs previous ${cmp.days} days`;
+}
+
+function calendarCard(c) {
+  const level = n => !n ? 0 : Math.max(1, Math.ceil(4 * n / c.max));
+  const cells = `<i class="cal-pad"></i>`.repeat(c.pad) + c.days.map(d => `<i class="cal-c l${level(d.n)}" title="${fmtDate(d.date)}: ${d.n}"></i>`).join("");
+  return `<div class="card h-100"><div class="card-body p-3"><div class="chart-title">Your last 6 months</div>
+    <div class="small text-body-secondary mb-2">${c.total} applications on ${c.active_days} days</div><div class="cal-wrap"><div class="cal" role="img" aria-label="${c.total} applications on ${c.active_days} days">${cells}</div></div></div></div>`;
+}
+
+function followUpCard(f) {
+  return `<div class="card h-100"><div class="card-body p-3"><div class="chart-title">Follow up${f.n ? ` (${f.n})` : ""}</div>
+    ${f.items.length ? `<div class="small text-body-secondary mb-2">No reply after ${f.after}+ days</div><div class="fu-list">${f.items.map(x => `<button class="fu" data-act="d-drill" data-name="${esc(x.company)}"><span class="text-truncate">${esc(x.company)}</span><small>${x.days}d</small></button>`).join("")}</div>` : empty("Nothing to chase right now.")}</div></div>`;
+}
+
 function tabBody(st) {
   const k = st.kpis, td = st.today, ex = st.explore, a = ex.analysis;
   const ins = S.insights || {};
   const toneIc = { good: "graph-up-arrow", warn: "exclamation-triangle", info: "lightbulb" };
   switch (S.dTab) {
-    case "directory": return `<div class="d-flex flex-wrap align-items-center gap-2 mb-2"><div class="input-group input-group-sm table-search"><span class="input-group-text">${bi("search")}</span><input type="search" class="form-control" id="dir-q" placeholder="Search company or role…" aria-label="Search companies"></div>
+    case "charts": return chartsTab();
+    case "directory": return `${subNav(COMPANY_NAV)}<div class="d-flex flex-wrap align-items-center gap-2 mb-2"><div class="input-group input-group-sm table-search"><span class="input-group-text">${bi("search")}</span><input type="search" class="form-control" id="dir-q" placeholder="Search company or role…" aria-label="Search companies"></div>
         <select class="form-select form-select-sm w-auto" id="dir-show" aria-label="Show"><option value="all">All companies</option><option value="replied">Replied</option><option value="silent">No reply yet</option></select><span class="small text-body-secondary" id="dir-count"></span></div>
       <div class="small text-body-secondary mb-2">Every company you've applied to, all time. Careers and Website open a search, so you land on the company's real page.</div>
       <div class="card"><div id="dir-rows" class="dir-list">${S.dirList ? "" : `<div class="p-3"><div class="skel w-75"></div><div class="skel"></div></div>`}</div></div>`;
-    case "stats": return `${spreadTable(a)}<div class="row g-3 mt-1">${chartCard("c-weekday", "Applications by weekday", "col-lg-6")}${ex.wait.some(w => w.n) ? chartCard("c-wait", "Days until a first reply", "col-lg-6") : ""}</div>`;
-    case "companies": return `<div class="row g-3 mb-3">${pieCard("p-company", "Top 10 companies by applications", a.company_pie, a.applications)}${ex.company_status.companies.length ? chartCard("c-cstat", "Top companies by outcome", "col-lg-6", "chart-lg") : ""}</div>${dataTable(a.companies, "companies")}`;
+    case "stats": return `${subNav(MORE_NAV)}${spreadTable(a)}<div class="row g-3 mt-1">${chartCard("c-weekday", "Applications by weekday", "col-lg-6")}${ex.wait.some(w => w.n) ? chartCard("c-wait", "Days until a first reply", "col-lg-6") : ""}</div>`;
+    case "companies": return `${subNav(COMPANY_NAV)}<div class="row g-3 mb-3">${pieCard("p-company", "Top 10 companies by applications", a.company_pie, a.applications)}${ex.company_status.companies.length ? chartCard("c-cstat", "Top companies by outcome", "col-lg-6", "chart-lg") : ""}</div>${dataTable(a.companies, "companies")}`;
     case "roles": return `<div class="row g-3 mb-3">${pieCard("p-title", "Top 10 roles by applications", a.title_pie, a.applications)}${chartCard("c-role", "Role families", "col-lg-6", "chart-lg")}</div>${dataTable(a.titles, "titles")}<div class="chart-title mt-3">Role families</div>${dataTable(a.families, "families")}`;
     case "replies": return `<div class="row g-3">${chartCard("c-funnel", "Funnel · reached at least this stage")}${chartCard("c-status", "Status now")}
       ${ex.rates.tier.length ? chartCard("c-rtier", "Reply rate by company tier", "col-lg-4") : ""}${ex.rates.role.length ? chartCard("c-rrole", "Reply rate by role family", "col-lg-4") : ""}${ex.rates.source.length ? chartCard("c-rsrc", "Reply rate by where you applied", "col-lg-4") : ""}</div>
       ${a.replies < 20 ? `<div class="small text-body-secondary mt-2">Only ${a.replies} repl${a.replies === 1 ? "y" : "ies"} so far, so treat these rates as an early signal.</div>` : ""}`;
-    case "found": return `<div class="row g-3">${hasData(ex.found.companies) ? chartCard("c-fcomp", "Jobs found by company", "col-lg-6", "chart-lg") : ""}${hasData(ex.found.roles) ? chartCard("c-frole", "Jobs found by role family", "col-lg-3", "chart-lg") : ""}${hasData(ex.found.tiers) ? chartCard("c-ftier", "Jobs found by company tier", "col-lg-3", "chart-lg") : ""}</div>${ex.found.total ? "" : empty("No jobs found in this range.")}`;
-    case "usage": return usageHTML(st.usage);
+    case "found": return `${subNav(MORE_NAV)}<div class="row g-3">${hasData(ex.found.companies) ? chartCard("c-fcomp", "Jobs found by company", "col-lg-6", "chart-lg") : ""}${hasData(ex.found.roles) ? chartCard("c-frole", "Jobs found by role family", "col-lg-3", "chart-lg") : ""}${hasData(ex.found.tiers) ? chartCard("c-ftier", "Jobs found by company tier", "col-lg-3", "chart-lg") : ""}</div>${ex.found.total ? "" : empty("No jobs found in this range.")}`;
+    case "usage": return subNav(MORE_NAV) + usageHTML(st.usage);
     default: return `<div class="kpi-row mb-3">
-        ${kpi(`${td.count}<span class="of">/${td.target}</span>`, "today", td.met ? "target met" : `${td.target - td.count} to go`)}${kpi(k.applications, "applications", `${k.avg_per_day}/day in this range`)}
-        ${kpi(`${k.response_rate}%`, "reply rate", `${a.replies} replies`)}${kpi(`${k.interview_rate}%`, "reach screening+", `${k.in_progress} in progress`)}
-        ${kpi(`${k.streak}d`, "streak", `${k.this_week} this week`)}${kpi(a.distinct_companies, "companies", `${a.distinct_titles} role titles`)}</div>
+        ${kpi(`${td.count}<span class="of">/${td.target}</span>`, "today", td.met ? "target met" : `${td.target - td.count} to go`)}${kpi(k.applications, "applications", delta(st.compare, "applications"))}
+        ${kpi(`${k.response_rate}%`, "reply rate", delta(st.compare, "replies"))}${kpi(`${k.streak}d`, "streak", `${k.this_week} this week`)}</div>
+      <div class="row g-3 mb-3"><div class="col-lg-8">${calendarCard(st.calendar)}</div><div class="col-lg-4">${followUpCard(st.follow_ups)}</div></div>
       <div class="oracle mb-3"><div class="d-flex align-items-center gap-2 mb-2"><div class="chart-title mb-0">${bi("eye")} The oracle</div><span class="small text-body-secondary">patterns in your own numbers</span>
         <div class="ms-auto btn-group btn-group-sm"><button class="btn btn-outline-secondary" data-action="oracle-prev" aria-label="Previous">${bi("chevron-left")}</button><button class="btn btn-outline-secondary" data-action="oracle-next" aria-label="Next">${bi("chevron-right")}</button></div></div>
         <div class="oracle-track" id="oracle-track">${ex.oracle.map(o => `<div class="oracle-card tone-${o.tone}"><div class="oc-ic">${bi(toneIc[o.tone] || "lightbulb")}</div><div><div class="fw-semibold">${esc(o.title)}</div><div class="small text-body-secondary mt-1">${esc(o.tip)}</div></div></div>`).join("")}</div></div>
-      <div class="row g-3 mb-3">${pieCard("p-company", "Top 10 companies by applications", a.company_pie, a.applications)}${pieCard("p-title", "Top 10 roles by applications", a.title_pie, a.applications)}</div>
-      <div class="row g-3 mb-3">${chartCard("c-day", `Applications by ${ex.grain}`, "col-lg-8")}${chartCard("c-found", `Jobs found by ${ex.grain}`, "col-lg-4")}</div>
+      <div class="row g-3 mb-3">${chartCard("c-day", `Applications by ${ex.grain}`, "col-12")}</div>
       <div class="card insights"><div class="card-body p-3"><div class="d-flex flex-wrap align-items-center gap-2 mb-1"><div class="chart-title mb-0">${bi("stars")} AI insights</div>
         <span class="small text-body-secondary" id="ins-meta">${ins.at ? `${esc(ins.provider)} · ${ago(ins.at)}` : ""}</span><span class="ms-auto" data-taskbox="dashboard"></span><button class="btn btn-sm btn-ink" data-action="insights">${bi("stars")} ${ins.text ? "Refresh analysis" : "Analyse my search"}</button></div>
         <div id="ins-body" class="ins-body">${ins.text ? mdLite(ins.text) : `<span class="text-body-secondary">Sends only these numbers (no company names, notes or contacts) to your AI provider.</span>`}</div></div></div>`;
@@ -160,14 +182,12 @@ function drawCharts(st) {
         options: { plugins: { legend: { position: "bottom" } }, scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true } } } });
       break;
     default: {
-      pie("p-company", a.company_pie); pie("p-title", a.title_pie);
       const per = { day: 1, week: 7, month: 30 }[ex.grain];
       chart("c-day", { type: "bar", data: { labels: ex.series.map(x => x.label), datasets: [
           { type: "line", label: "Target", data: ex.series.map(() => st.today.target * per), borderColor: C[8], borderDash: [5, 4], borderWidth: 2, pointRadius: 0 },
           { label: "Replies", data: ex.series.map(x => x.responded), backgroundColor: C[2], borderRadius: 4, maxBarThickness: 18 },
           { label: "Applications", data: ex.series.map(x => x.applied), backgroundColor: C[0], borderRadius: 4, maxBarThickness: 18 }] },
         options: { plugins: { legend: { position: "bottom" } }, scales: axes() } });
-      chart("c-found", { type: "line", data: { labels: ex.series.map(x => x.label), datasets: [{ data: ex.series.map(x => x.found), borderColor: C[0], borderWidth: 2, tension: .3, pointRadius: 0, pointHitRadius: 12 }] }, options: { plugins: noLegend, scales: axes() } });
     }
   }
 }
@@ -184,23 +204,18 @@ async function renderDashboard() {
   S.dData = st;
   const ex = st.explore;
   const seg = (attr, cur, opts) => `<div class="btn-group btn-group-sm" role="group">${opts.map(([v, l]) => `<button class="btn ${v === cur ? "btn-ink" : "btn-outline-secondary"}" data-${attr}="${v}">${l}</button>`).join("")}</div>`;
-  host.innerHTML = `<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
-      <div class="small text-body-secondary">${fmtDate(ex.start)} – ${fmtDate(ex.end)} · ${ex.applications} applications · ${ex.found.total} jobs found · numbers computed on this PC</div>
-      <div class="d-flex flex-wrap align-items-center gap-2"><span class="llm-switch"></span><label class="small fw-semibold" for="target-in">Daily target</label><input type="number" min="1" max="100" class="form-control form-control-sm target-in" id="target-in" value="${st.today.target}">
-        <button class="btn btn-sm btn-ink" data-action="save-target">Save</button><button class="btn btn-sm btn-outline-secondary" data-action="test-reminder" title="Reminders come at 1 pm and 6 pm while the app is open">${bi("bell")}</button></div></div>
-    <div class="d-flex flex-wrap align-items-center gap-2 mb-3 dash-filters">
+  host.innerHTML = `<div class="d-flex flex-wrap align-items-center gap-2 mb-3 dash-filters">
       ${seg("drange", S.dRange, [["7d", "7 days"], ["30d", "30 days"], ["90d", "90 days"], ["12m", "12 months"], ["all", "All time"]])}
-      ${seg("dgrain", S.dGrain, [["auto", "Auto"], ["day", "Days"], ["week", "Weeks"], ["month", "Months"]])}
       <select class="form-select form-select-sm w-auto" id="d-company" aria-label="Filter by company"><option value="">All companies</option>${st.options.companies.map(c => `<option ${c === S.dCompany ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
       <select class="form-select form-select-sm w-auto" id="d-family" aria-label="Filter by role"><option value="">All roles</option>${st.options.families.map(c => `<option ${c === S.dFamily ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
-      ${S.dCompany || S.dFamily ? `<button class="btn btn-sm btn-link" data-action="d-clear">Clear filters</button>` : ""}</div>
-    <div class="dash-tabs" role="tablist">${DTABS.map(([k, l, ic]) => `<button class="dash-tab ${k === S.dTab ? "on" : ""}" role="tab" aria-selected="${k === S.dTab}" data-act="d-tab" data-k="${k}">${bi(ic)} ${l}</button>`).join("")}</div>
+      ${S.dCompany || S.dFamily ? `<button class="btn btn-sm btn-link" data-action="d-clear">Clear filters</button>` : ""}<span class="small text-body-secondary ms-auto">${fmtDate(ex.start)} – ${fmtDate(ex.end)}</span></div>
+    <div class="dash-tabs" role="tablist">${DTABS.map(([k, l, ic]) => `<button class="dash-tab ${tabOn(k) ? "on" : ""}" role="tab" aria-selected="${tabOn(k)}" data-act="d-tab" data-k="${k}">${bi(ic)} ${l}</button>`).join("")}</div>
     <div id="dash-body">${tabBody(st)}</div>
     <button class="btn btn-ink oracle-fab" data-action="oracle-chat-open">${bi("chat-dots")} Ask the oracle</button>
     <div class="oracle-chat card d-none" id="oracle-chat"><div class="card-body p-0 d-flex flex-column">
       <div class="d-flex flex-wrap align-items-center gap-2 px-3 py-2 border-bottom"><b>${bi("eye")} Ask the oracle</b><span data-taskbox="dashboard"></span><button class="btn btn-sm btn-link ms-auto p-0" data-action="oracle-chat-reset" title="Clear the chat">${bi("trash")}</button><button class="btn-close" data-action="oracle-chat-close" aria-label="Close"></button></div>
       <div class="oc-msgs flex-grow-1 p-3" id="oc-msgs"></div>
-      <div class="px-3 pb-2 d-flex flex-wrap gap-1">${["Where am I losing?", "Table of my companies", "Pie chart of my roles", "Histogram of days waiting", "Bar chart of applications by month"].map(q => `<button class="btn btn-sm btn-outline-secondary rounded-pill" data-action="oracle-ask" data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>
+      <div class="px-3 pb-2 d-flex flex-wrap gap-1">${["Where am I losing?", "Stacked bar of status by month", "Reply rate by tier", "List applications waiting over 14 days", "Scatter of applications and replies by company"].map(q => `<button class="btn btn-sm btn-outline-secondary rounded-pill" data-action="oracle-ask" data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>
       <form class="d-flex gap-2 p-3 pt-1" id="oc-form"><input class="form-control form-control-sm" id="oc-in" placeholder="Ask about your job search…" autocomplete="off"><button class="btn btn-sm btn-ink" aria-label="Send">${bi("send")}</button></form></div></div>`;
   $("#oc-form").addEventListener("submit", e => { e.preventDefault(); oracleAsk($("#oc-in").value); });
   drawSwitchers();
@@ -210,6 +225,7 @@ async function renderDashboard() {
 function afterTab(st) {
   paint($("#dash-body"));
   if (S.dTab === "directory") { if (S.dirList) drawDirectory(); loadDirectory(); }
+  if (S.dTab === "charts") loadPins();
   clearInterval(S.oracleTimer);
   if (S.dTab === "overview") {
     S.oracleTimer = setInterval(() => { if (currentView() !== "dashboard") return clearInterval(S.oracleTimer); if (!document.querySelector(".oracle:hover")) oracleScroll(1, true); }, 7000);
@@ -225,7 +241,7 @@ function redrawTab() {
   afterTab(S.dData);
 }
 
-ACT["d-tab"] = el => { S.dTab = el.dataset.k; $$(".dash-tab").forEach(b => { const on = b.dataset.k === S.dTab; b.classList.toggle("on", on); b.setAttribute("aria-selected", on); }); redrawTab(); };
+ACT["d-tab"] = el => { S.dTab = el.dataset.k; $$(".dash-tab").forEach(b => { const on = tabOn(b.dataset.k); b.classList.toggle("on", on); b.setAttribute("aria-selected", on); }); redrawTab(); };
 ACT["d-sort"] = el => { const st = S.dSort[el.dataset.t]; st.dir = st.k === el.dataset.k ? -st.dir : (el.dataset.k === "name" ? 1 : -1); st.k = el.dataset.k; redrawTab(); };
 ACT["d-drill"] = el => { S.t.q = el.dataset.name; S.t.status = "all"; store.set("tracker", S.t); location.hash = "#/tracker"; };
 document.addEventListener("input", e => {

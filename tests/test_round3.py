@@ -233,8 +233,7 @@ class Coach(unittest.TestCase):
 
 class Password(unittest.TestCase):
     def test_any_length_reaches_google(self):
-        fake = mock.Mock()
-        with mock.patch.object(mail, "_imap", return_value=fake) as login:
+        with mock.patch.object(mail, "_login") as login:
             mail.connect("me@example.com", "abcd efgh ijkl mnop qrst")
         self.assertEqual(login.call_args[0][1], "abcdefghijklmnopqrst")
         self.assertEqual(settings.read_env()[mail.PASS_VAR], "abcdefghijklmnopqrst")
@@ -945,32 +944,77 @@ class CompanyList(unittest.TestCase):
         wipe()
 
 
-
-class FirstRunSetup(unittest.TestCase):
+class AnyChart(unittest.TestCase):
     def setUp(self):
-        self.client = TestClient(api.app)
-        db.set_setting("setup_done", None)
-        self.resumes = mock.patch.object(api.db, "resumes", return_value=[])
-        self.resumes.start()
-        self.addCleanup(self.resumes.stop)
-        self.addCleanup(db.set_setting, "profile", db.get_setting("profile"))
-        self.addCleanup(db.set_setting, "setup_done", None)
+        wipe()
+        settings_rows = [("Acme", "ML Engineer", "applied", 20), ("Acme", "SDE", "rejected", 5), ("Beta", "SDE", "applied", 3), ("Gamma", "Data Scientist", "offer", 12)]
+        for company, title, status, age in settings_rows:
+            add_job(company, title, applied_on=(date.today() - timedelta(days=age)).isoformat(), status=status)
+        db.set_setting("dash_pins", None)
+        self.c = TestClient(api.app)
 
-    def test_new_install_needs_setup_until_finished(self):
-        self.assertTrue(api._setup_needed())
-        self.client.post("/api/setup/done")
-        self.assertFalse(api._setup_needed())
+    def test_every_chart_type_is_built_from_real_counts(self):
+        for kind in stats.CHART_TYPES:
+            spec = {"type": kind, "title": kind, "group_by": "company", "measure": "days_waiting", "metric": "applications"}
+            self.assertEqual(stats.query(spec)["type"], kind)
 
-    def test_existing_user_with_a_resume_never_sees_it(self):
-        api.db.resumes.return_value = [{"id": 1}]
-        self.assertFalse(api._setup_needed())
+    def test_counts(self):
+        bar = stats.query({"type": "bar", "group_by": "company", "metric": "applications"})
+        self.assertEqual(dict(zip(bar["labels"], bar["values"])), {"Acme": 2, "Beta": 1, "Gamma": 1})
+        self.assertEqual(stats.query({"type": "stat", "metric": "reply_rate"})["value"], 50.0)
+        self.assertEqual(stats.query({"type": "stat", "metric": "offers"})["value"], 1)
 
-    def test_typed_name_is_kept_and_does_not_recheck_jobs(self):
-        from jobhunt import profile
-        before = profile.signature("m")
-        profile.save_preferences({"name": "Asha Rao"})
-        self.assertEqual(profile.preferences()["name"], "Asha Rao")
-        self.assertEqual(profile.signature("m"), before)
+    def test_split_and_several_metrics(self):
+        c = stats.query({"type": "stacked_bar", "group_by": "company", "split_by": "status", "metric": "applications"})
+        got = {s["label"]: dict(zip(c["labels"], s["values"])) for s in c["series"]}
+        self.assertEqual((got["applied"]["Acme"], got["rejected"]["Acme"], got["offer"]["Beta"]), (1, 1, 0))
+        c = stats.query({"type": "grouped_bar", "group_by": "company", "metrics": ["applications", "replies"]})
+        self.assertEqual([s["label"] for s in c["series"]], ["applications", "replies"])
+
+    def test_list_filters_and_sorts(self):
+        c = stats.query({"type": "list", "where": {"no_reply": True, "min_days_ago": 10}, "columns": ["company", "days_since"]})
+        self.assertEqual(c["rows"], [["Acme", 20]])
+        c = stats.query({"type": "list", "where": {"status": ["offer", "rejected"]}, "columns": ["company", "status"], "sort": "company"})
+        self.assertEqual([r[0] for r in c["rows"]], ["Acme", "Gamma"])
+
+    def test_scatter_has_no_invented_points(self):
+        c = stats.query({"type": "scatter", "group_by": "company", "x": "applications", "y": "replies"})
+        self.assertEqual({p["label"]: (p["x"], p["y"]) for p in c["points"]}, {"Acme": (2, 1), "Beta": (1, 0), "Gamma": (1, 1)})
+
+    def test_jobs_dataset_uses_job_metrics_only(self):
+        self.assertEqual(stats.query({"type": "stat", "dataset": "jobs", "metric": "jobs"})["value"], 4)
+        with self.assertRaises(ValueError):
+            stats.query({"type": "stat", "dataset": "jobs", "metric": "reply_rate"})
+
+    def test_unknown_names_are_refused(self):
+        for bad in ({"type": "sankey"}, {"type": "bar", "group_by": "shoe"}, {"type": "bar", "group_by": "company", "metric": "x"},
+                    {"type": "list", "columns": ["notes"]}, {"type": "stat", "dataset": "secrets"}):
+            with self.assertRaises(ValueError):
+                stats.query(bad)
+
+    def test_oracle_can_draw_six_and_bad_lines_are_noted(self):
+        line = 'CHART: {"type":"stat","title":"t","metric":"offers"}'
+        text, charts = api._oracle_charts("\n".join([line] * 7 + ['CHART: {"type":"nope"}']))
+        self.assertEqual(len(charts), 6)
+        self.assertIn("couldn't draw 1", text)
+
+    def test_pins_recount_and_can_be_removed(self):
+        spec = {"type": "stat", "title": "Offers", "metric": "offers"}
+        self.assertEqual(self.c.post("/api/charts/pin", json={"spec": spec}).status_code, 200)
+        self.assertEqual(self.c.post("/api/charts/pin", json={"spec": {"type": "nope"}}).status_code, 400)
+        add_job("Delta", "SDE", status="offer")
+        pin = self.c.get("/api/charts").json()["pins"][0]
+        self.assertEqual(pin["chart"]["value"], 2)
+        self.c.delete(f"/api/charts/pin/{pin['id']}")
+        self.assertEqual(self.c.get("/api/charts").json()["pins"], [])
+
+    def test_calendar_follow_ups_and_compare(self):
+        cal = stats.calendar()
+        self.assertEqual((len(cal["days"]), cal["total"], cal["active_days"]), (182, 4, 4))
+        f = stats.follow_ups()
+        self.assertEqual([(x["company"], x["days"]) for x in f["items"]], [("Acme", 20)])
+        self.assertEqual(stats.compare(days=7), {"days": 7, "applications": [2, 1], "replies": [1, 1]})
+        self.assertIsNone(stats.compare())
 
 
 if __name__ == "__main__":

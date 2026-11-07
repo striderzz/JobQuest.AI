@@ -178,7 +178,7 @@ ACT["batch-stop"] = async () => { await api("/api/outbox/stop", { method: "POST"
 // ---------------------------------------------------------------- Gmail wizard
 
 function gmailWizard() {
-  return `<p class="small text-body-secondary">Connect Gmail to get suggested tracker updates from recruiter emails and to send cold emails from here. Your password is encrypted on this PC.</p>
+  return `<p class="small text-body-secondary">Connect Gmail to send cold emails from here. Your inbox is never read. Your password is encrypted on this PC.</p>
     <ol class="wizard">
       <li><b>Turn on 2-Step Verification</b><div class="small text-body-secondary">Google only offers app passwords when it's on.</div><a class="btn btn-sm btn-outline-secondary mt-1" href="https://myaccount.google.com/signinoptions/twosv" target="_blank" rel="noopener noreferrer">Open Google security ${bi("box-arrow-up-right")}</a></li>
       <li><b>Create an app password</b><div class="small text-body-secondary">Name it JobQuest.AI and copy what Google shows.</div><a class="btn btn-sm btn-outline-secondary mt-1" href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer">Open app passwords ${bi("box-arrow-up-right")}</a></li>

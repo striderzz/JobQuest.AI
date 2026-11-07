@@ -80,12 +80,8 @@ def main(argv=None):
         try:
             from . import notify
             notify.target_reminder()               # the 09:00 / 21:00 task doubles as the daily-target nudge
-            from . import cloud, mail
+            from . import cloud
             cloud.sync_if_due()
-            if mail.connected():
-                n = len(mail.sync())
-                if n:
-                    notify.toast("JobQuest.AI", f"{n} application update(s) found in Gmail - review them in the Tracker.")
         except Exception as e:
             print(f"reminder skipped: {e}")
         if a.open_if_new and r["new"]:

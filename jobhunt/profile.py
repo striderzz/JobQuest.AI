@@ -8,7 +8,7 @@ from . import ai, db, settings
 from . import resume as R
 from .skills import find_skills
 
-DEFAULTS = {"name": "", "current_city": "", "phone": "", "preferred_cities": [], "roles": ["SDE", "ML"],
+DEFAULTS = {"current_city": "", "phone": "", "preferred_cities": [], "roles": ["SDE", "ML"],
             "include_internships": True, "about": "", "max_years": 2}
 
 
@@ -237,7 +237,7 @@ def summary():
             "entries": [e["name"] for e in p.get("entries", [])],
         })
     return {
-        "name": prefs["name"] or first.get("name", ""), "email": first.get("email", ""),
+        "name": first.get("name", ""), "email": first.get("email", ""),
         "phone": prefs["phone"] or first.get("phone", ""),
         "city": prefs["current_city"] or "", "resume_location": first.get("location", ""),
         "linkedin": first.get("linkedin", ""), "github": first.get("github", ""),

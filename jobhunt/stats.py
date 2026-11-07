@@ -482,26 +482,63 @@ GROUPS = {
     "tier": lambda j: tiers.LABELS[tiers.tier_of(j.get("company"))], "job_type": lambda j: (j.get("job_type") or "").strip().title() or "Not given",
     "weekday": lambda j: _day(j).strftime("%a") if _day(j) else "", "month": lambda j: _day(j).strftime("%Y-%m") if _day(j) else "",
     "week": lambda j: _bucket(_day(j), "week").isoformat() if _day(j) else "", "day": lambda j: _day(j).isoformat() if _day(j) else "",
+    "year": lambda j: str(_day(j).year) if _day(j) else "",
+    "quarter": lambda j: f"{_day(j).year}-Q{(_day(j).month - 1) // 3 + 1}" if _day(j) else "",
 }
-METRICS = ("applications", "replies", "reached_screening", "offers", "rejected", "ghosted", "reply_rate")
-MEASURES = ("days_waiting", "days_to_reply", "applications_per_company", "applications_per_day", "salary_lpa")
-CHART_TYPES = ("bar", "pie", "line", "histogram", "table")
+TIMELINE = ("year", "quarter", "month", "week", "day", "weekday")
+METRICS = ("applications", "replies", "reached_screening", "interviews", "offers", "rejected", "ghosted", "active", "reply_rate",
+           "median_days_to_reply")
+JOB_METRICS = ("jobs", "avg_score", "median_salary_lpa")
+MEASURES = ("days_waiting", "days_to_reply", "applications_per_company", "applications_per_day", "salary_lpa", "match_score")
+CHART_TYPES = ("bar", "horizontal_bar", "stacked_bar", "grouped_bar", "line", "area", "pie", "doughnut", "polar", "radar", "scatter",
+               "histogram", "table", "list", "stat")
+DATASETS = ("applications", "jobs")
+LIST_COLUMNS = {
+    "company": lambda j: (j.get("company") or "").strip(), "role": lambda j: (j.get("title") or "").strip(),
+    "status": lambda j: j.get("status") or "", "applied": lambda j: _day(j).isoformat() if _day(j) else "",
+    "days_since": lambda j: (date.today() - _day(j)).days if _day(j) else "", "location": _city,
+    "source": lambda j: (j.get("app_source") or "").strip(), "job_type": lambda j: (j.get("job_type") or "").strip(),
+    "score": lambda j: j.get("score") if j.get("score") is not None else "", "salary_lpa": lambda j: _lpa(j) or "",
+}
+SPEC_KEYS = ("type", "title", "dataset", "group_by", "split_by", "metric", "metrics", "top", "sort", "where", "measure", "bins", "x", "y",
+             "columns")
+
+
+def _lpa(j):
+    if not j.get("salary_max") or j.get("salary_currency") != "INR":
+        return None
+    return round(((j.get("salary_min") or j["salary_max"]) + j["salary_max"]) / 2 / 100_000, 1)
+
+
+def _found(rows):
+    """Jobs the search found, shaped so the same groups work: dated by when they were found, sourced by their job board."""
+    return [{**j, "applied_on": (j.get("first_seen") or "")[:10], "app_source": j.get("source") or ""}
+            for j in rows if j.get("active") and j.get("status") != "hidden"]
 
 
 def _metric(name, grp, hist):
-    replies = sum(1 for j in grp if j["status"] in RESPONDED)
-    return {"applications": len(grp), "replies": replies, "reached_screening": sum(1 for j in grp if _reached(j, hist) >= 2),
-            "offers": sum(1 for j in grp if j["status"] == "offer"), "rejected": sum(1 for j in grp if j["status"] == "rejected"),
-            "ghosted": sum(1 for j in grp if j["status"] == "ghosted"),
-            "reply_rate": round(100 * replies / len(grp), 1) if grp else 0}[name]
+    def median(values):
+        return round(statistics.median(values), 1) if values else 0
+    replies = lambda: sum(1 for j in grp if j["status"] in RESPONDED)                # noqa: E731
+    return {"applications": lambda: len(grp), "jobs": lambda: len(grp), "replies": replies,
+            "reached_screening": lambda: sum(1 for j in grp if _reached(j, hist) >= 2),
+            "interviews": lambda: sum(1 for j in grp if _reached(j, hist) >= 4),
+            "offers": lambda: sum(1 for j in grp if j["status"] == "offer"),
+            "rejected": lambda: sum(1 for j in grp if j["status"] == "rejected"),
+            "ghosted": lambda: sum(1 for j in grp if j["status"] == "ghosted"),
+            "active": lambda: sum(1 for j in grp if j["status"] in ("applied", "screening", "oa", "interviewing")),
+            "reply_rate": lambda: round(100 * replies() / len(grp), 1) if grp else 0,
+            "median_days_to_reply": lambda: median(_waits(grp, hist)),
+            "avg_score": lambda: round(statistics.mean(s), 1) if (s := [j["score"] for j in grp if j.get("score") is not None]) else 0,
+            "median_salary_lpa": lambda: median([x for x in map(_lpa, grp) if x])}[name]()
 
 
 def _where(apps, w):
     out = apps
     for field, fn in (("status", GROUPS["status"]), ("family", GROUPS["family"]), ("tier", GROUPS["tier"]), ("source", GROUPS["source"]), ("location", GROUPS["location"])):
         if w.get(field):
-            want = str(w[field]).lower()
-            out = [j for j in out if fn(j).lower() == want]
+            want = {str(x).lower() for x in w[field]} if isinstance(w[field], list) else {str(w[field]).lower()}
+            out = [j for j in out if fn(j).lower() in want]
     if w.get("company"):
         key = db.norm_company(str(w["company"]))
         out = [j for j in out if db.norm_company(j.get("company")) == key]
@@ -511,6 +548,13 @@ def _where(apps, w):
         if w.get(field):
             x = date.fromisoformat(str(w[field])[:10])
             out = [j for j in out if _day(j) and keep(_day(j), x)]
+    if w.get("job_type"):
+        out = [j for j in out if GROUPS["job_type"](j).lower() == str(w["job_type"]).lower()]
+    if w.get("no_reply"):
+        out = [j for j in out if j["status"] == "applied"]
+    if w.get("min_days_ago") is not None:
+        limit = date.today() - timedelta(days=int(w["min_days_ago"]))
+        out = [j for j in out if _day(j) and _day(j) <= limit]
     return out
 
 
@@ -526,8 +570,10 @@ def _histogram(measure, apps, rows, hist, bins):
         c = Counter(d for d in (_day(j) for j in apps) if d)
         first = min(c, default=today)
         v = [c.get(first + timedelta(days=i), 0) for i in range((today - first).days + 1)]
+    elif measure == "match_score":
+        v = [j["score"] for j in rows if j.get("active") and j.get("score") is not None]
     else:
-        v = [((j["salary_min"] or j["salary_max"]) + j["salary_max"]) / 2 / 100_000 for j in rows if j.get("salary_max") and j.get("salary_currency") == "INR"]
+        v = [x for x in map(_lpa, rows) if x]
     if not v:
         return [], [], 0
     lo, hi = min(v), max(v)
@@ -541,44 +587,123 @@ def _histogram(measure, apps, rows, hist, bins):
     return labels, values, len(v)
 
 
-def query(spec, rows=None):
-    """Build a chart or table the oracle asked for. It only names what to show; every number is counted here, so it
-    can't invent one. Raises ValueError on anything unknown."""
-    rows = rows if rows is not None else db.list_jobs()
-    kind = spec.get("type", "bar")
-    if kind not in CHART_TYPES:
-        raise ValueError(f"unknown chart type {kind}")
-    hist = db.status_history()
-    apps = _where(applications(rows), spec.get("where") or {})
-    title = str(spec.get("title") or "Chart")[:90]
-    if kind == "histogram":
-        measure = spec.get("measure")
-        if measure not in MEASURES:
-            raise ValueError(f"unknown measure {measure}")
-        labels, values, n = _histogram(measure, apps, rows, hist, max(3, min(int(spec.get("bins") or 8), 20)))
-        return {"type": "histogram", "title": title, "labels": labels, "values": values, "n": n, "metric": measure}
-    group, metric = spec.get("group_by"), spec.get("metric", "applications")
-    if group not in GROUPS:
-        raise ValueError(f"unknown group {group}")
-    if metric not in METRICS:
-        raise ValueError(f"unknown metric {metric}")
+def _groups(items, group):
     if group == "company":
-        groups = _group(apps, lambda j: db.norm_company(j.get("company")))
-        groups = {Counter((j.get("company") or "").strip() for j in v).most_common(1)[0][0]: v for k, v in groups.items() if k}
-    else:
-        groups = {k: v for k, v in _group(apps, GROUPS[group]).items() if k}
-    timeline = group in ("month", "week", "day", "weekday")
-    top = max(1, min(int(spec.get("top") or (60 if kind == "table" else 30 if timeline else 10)), 400 if kind == "table" else 60))
-    if timeline:
+        by_key = _group(items, lambda j: db.norm_company(j.get("company")))
+        return {Counter((j.get("company") or "").strip() for j in v).most_common(1)[0][0]: v for k, v in by_key.items() if k}
+    return {k: v for k, v in _group(items, GROUPS[group]).items() if k}
+
+
+def _pick(name, allowed, what):
+    if name not in allowed:
+        raise ValueError(f"unknown {what} {name}")
+    return name
+
+
+def _list(spec, items, title):
+    cols = spec.get("columns") or ["company", "role", "status", "applied", "days_since"]
+    for c in cols:
+        _pick(c, LIST_COLUMNS, "column")
+    table = [[LIST_COLUMNS[c](j) for c in cols] for j in items]
+    by = spec.get("sort") if spec.get("sort") in cols else ("applied" if "applied" in cols else cols[0])
+    i = cols.index(by)
+    table.sort(key=lambda r: str(r[i]).zfill(12) if isinstance(r[i], (int, float)) else str(r[i]).lower(), reverse=by in ("applied", "days_since", "score", "salary_lpa"))
+    top = max(1, min(int(spec.get("top") or 100), 400))
+    return {"type": "list", "title": title, "columns": cols, "rows": table[:top], "total": len(table)}
+
+
+def _build(spec, rows):
+    kind = _pick(spec.get("type", "bar"), CHART_TYPES, "chart type")
+    dataset = _pick(spec.get("dataset", "applications"), DATASETS, "dataset")
+    allowed = JOB_METRICS if dataset == "jobs" else METRICS
+    hist = db.status_history()
+    items = _where(_found(rows) if dataset == "jobs" else applications(rows), spec.get("where") or {})
+    title = str(spec.get("title") or "Chart")[:90]
+    if kind == "list":
+        return _list(spec, items, title)
+    if kind == "histogram":
+        measure = _pick(spec.get("measure"), MEASURES, "measure")
+        labels, values, n = _histogram(measure, items, rows, hist, max(3, min(int(spec.get("bins") or 8), 20)))
+        return {"type": "histogram", "title": title, "labels": labels, "values": values, "n": n, "metric": measure}
+    metric = _pick(spec.get("metric", allowed[0]), allowed, "metric")
+    if kind == "stat":
+        return {"type": "stat", "title": title, "value": _metric(metric, items, hist), "unit": "%" if metric == "reply_rate" else "", "n": len(items), "metric": metric}
+    group = _pick(spec.get("group_by"), GROUPS, "group")
+    groups = _groups(items, group)
+    timeline = group in TIMELINE
+    is_table = kind == "table"
+    top = max(1, min(int(spec.get("top") or (60 if is_table else 30 if timeline else 10)), 400 if is_table else 60))
+    if timeline or spec.get("sort") == "label":
         keys = sorted(groups, key=(WEEKDAYS.index if group == "weekday" else str))
     else:
         keys = sorted(groups, key=lambda k: (-_metric(metric, groups[k], hist), str(k)))
     shown, total = keys[:top], len(keys)
-    if kind == "table":
-        return {"type": "table", "title": title, "columns": [group, *METRICS], "total": total,
-                "rows": [[k, *[_metric(m, groups[k], hist) for m in METRICS]] for k in shown]}
-    return {"type": kind, "title": title, "labels": [str(k) for k in shown], "values": [_metric(metric, groups[k], hist) for k in shown],
-            "metric": metric, "total": total, "n": len(apps)}
+    if is_table:
+        cols = [_pick(m, allowed, "metric") for m in (spec.get("metrics") or allowed)]
+        return {"type": "table", "title": title, "columns": [group, *cols], "total": total,
+                "rows": [[k, *[_metric(m, groups[k], hist) for m in cols]] for k in shown]}
+    if kind == "scatter":
+        x, y = _pick(spec.get("x", allowed[0]), allowed, "metric"), _pick(spec.get("y", metric), allowed, "metric")
+        return {"type": "scatter", "title": title, "group": group, "x": x, "y": y, "total": total, "n": len(items),
+                "points": [{"label": str(k), "x": _metric(x, groups[k], hist), "y": _metric(y, groups[k], hist)} for k in shown]}
+    out = {"type": kind, "title": title, "labels": [str(k) for k in shown], "metric": metric, "total": total, "n": len(items)}
+    if spec.get("split_by"):
+        split = _pick(spec["split_by"], GROUPS, "group")
+        names = [k for k, _ in Counter(GROUPS[split](j) for j in items if GROUPS[split](j)).most_common(6)]
+        out["series"] = [{"label": name, "values": [_metric(metric, [j for j in groups[k] if GROUPS[split](j) == name], hist) for k in shown]} for name in names]
+    elif spec.get("metrics"):
+        out["series"] = [{"label": m.replace("_", " "), "values": [_metric(_pick(m, allowed, "metric"), groups[k], hist) for k in shown]} for m in spec["metrics"]]
+    else:
+        out["values"] = [_metric(metric, groups[k], hist) for k in shown]
+    return out
+
+
+def query(spec, rows=None):
+    """Build a chart or table from a spec. The oracle and the chart builder only name what to show; every number is
+    counted here, so none can be invented. Raises ValueError on anything unknown."""
+    if not isinstance(spec, dict):
+        raise ValueError("a chart needs a spec")
+    out = _build(spec, rows if rows is not None else db.list_jobs())
+    out["spec"] = {k: spec[k] for k in SPEC_KEYS if k in spec}
+    return out
+
+
+def chart_options():
+    return {"types": list(CHART_TYPES), "datasets": list(DATASETS), "groups": list(GROUPS), "measures": list(MEASURES),
+            "metrics": {"applications": list(METRICS), "jobs": list(JOB_METRICS)}}
+
+
+def calendar(rows=None, days=182, today=None):
+    """Applications per day, for the activity calendar. `pad` lines the first day up with its weekday."""
+    today = today or date.today()
+    start = today - timedelta(days=days - 1)
+    count = Counter(d for d in map(_day, applications(rows)) if d and d >= start)
+    cells = [{"date": (start + timedelta(days=i)).isoformat(), "n": count.get(start + timedelta(days=i), 0)} for i in range(days)]
+    return {"pad": start.weekday(), "days": cells, "max": max(count.values(), default=0), "total": sum(count.values()),
+            "active_days": len(count)}
+
+
+def follow_ups(rows=None, after=10, before=45, limit=10, today=None):
+    """Applications with no reply yet that are old enough for a nudge but not so old it's pointless, oldest first."""
+    today = today or date.today()
+    due = [(j, (today - _day(j)).days) for j in applications(rows) if j["status"] == "applied" and _day(j)]
+    due = sorted(((j, n) for j, n in due if after <= n <= before), key=lambda x: -x[1])
+    return {"n": len(due), "after": after, "items": [{"company": j.get("company"), "title": j.get("title"), "days": n} for j, n in due[:limit]]}
+
+
+def compare(rows=None, days=None, today=None):
+    """This period against the one before it, by application date."""
+    if not days:
+        return None
+    today = today or date.today()
+    now, before = [], []
+    for j in applications(rows):
+        d = _day(j)
+        if d:
+            age = (today - d).days
+            (now if 0 <= age < days else before if days <= age < 2 * days else []).append(j)
+    replies = lambda grp: sum(1 for j in grp if j["status"] in RESPONDED)            # noqa: E731
+    return {"days": days, "applications": [len(now), len(before)], "replies": [replies(now), replies(before)]}
 
 
 def applied_companies(rows=None):

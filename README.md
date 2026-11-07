@@ -128,11 +128,15 @@ Finds entry-level jobs in India, ranks them against your resume with the AI mode
   - **Batch email** fills a template or writes each draft with AI. You review every one, then one click sends them
     about 45 seconds apart, 50 a day at most, with a Stop button.
 
+**Dashboard**
+- **Ask the oracle** for any chart, table or list: bar, stacked, line, area, pie, doughnut, polar, radar, scatter, histogram,
+  a single number or a list of applications. It only names what to show; Python counts every number.
+- **My charts**: build a chart without AI, and pin any chart to the dashboard. Pins recount from your latest data.
+- A six-month activity calendar, follow-ups due, and a comparison with the previous period.
+- Download any chart as an image or CSV.
+
 **Email (Gmail, app password)**
-- Reads recent job emails without changing them. It classifies each one (rejection, OA, interview, screening,
-  offer), matches it to tracker rows, and **proposes** updates for you to approve. It never moves an
-  application backwards.
-- Sends cold emails only after you review them and press Send.
+- Used only for cold email: sends after you review and press Send. Your inbox is never read.
 - A guided setup connects Gmail with an app password.
 
 **Sync and security**
@@ -152,7 +156,7 @@ flowchart LR
     API --> PIPE["Search pipeline<br/>sources → filters → match"]
     API --> LLM["llm.py<br/>provider table + fallback"]
     API --> STATS["stats.py<br/>pure-Python analytics"]
-    API --> MAIL["mail.py<br/>IMAP read-only / SMTP send"]
+    API --> MAIL["mail.py<br/>SMTP send"]
     API --> LET["letters.py<br/>PDF / DOCX"]
     API --> VAULT["vault.py<br/>Windows DPAPI"]
     API --> CLOUD["cloud.py<br/>encrypted snapshots + merge"]
@@ -175,13 +179,11 @@ flowchart LR
 
 ## Run it
 
-**Install on Windows (recommended):** download **`JobQuestAI-Setup-3.1.0.exe`** from the
+**Install on Windows (recommended):** download **`JobQuestAI-Setup-3.2.0.exe`** from the
 [latest release](../../releases/latest) and run it.
 - It installs for your user only, with no admin prompt, into `%LOCALAPPDATA%\Programs\JobQuest.AI`.
 - It adds Start menu and optional Desktop shortcuts, and can optionally schedule a job search every 12 hours.
 - Uninstall it from *Settings → Apps* like any other app. Your data in `%USERPROFILE%\.jobhuntai` is kept.
-- The first launch walks you through setup: create your profile and add a resume, paste an AI key, then connect Gmail with an app password. Everything after the profile can be skipped, and *Settings → Run setup again* brings it back.
-- The installer isn't code-signed yet, so Windows SmartScreen may warn you: choose *More info → Run anyway*.
 
 **Portable:** download `JobQuestAI.exe` from the same release and double-click it; there's nothing to install.
 
@@ -228,7 +230,7 @@ JobQuest.AI is a FastAPI web app packaged as a native-feeling Windows program.
 - The exe starts the FastAPI server with Uvicorn in a background thread on `127.0.0.1:8000`, listening locally only.
 - It opens **Microsoft Edge in app mode** (`--app=...`) with its own profile, giving a clean window with no tabs or address bar.
 - It watches that window's profile, and stops the server shortly after the last window closes.
-- A background thread runs the 12-hour job refresh, the Gmail check and the daily-target reminders (Windows toasts).
+- A background thread runs the 12-hour job refresh and the daily-target reminders (Windows toasts).
 - All data stays in `%USERPROFILE%\.jobhuntai`, outside the exe: the SQLite database, resumes, API keys and backups. So
   rebuilding or reinstalling never loses anything.
 

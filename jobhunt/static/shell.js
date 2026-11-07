@@ -186,7 +186,7 @@ function drawLanes(p) {
 
 // ---------------------------------------------------------------- command palette (Ctrl+K)
 
-const PAGES = [["jobs", "Jobs", "briefcase"], ["outreach", "Cold email", "envelope-at"], ["tracker", "Tracker", "kanban"], ["dashboard", "Dashboard", "bar-chart-line"],
+const PAGES = [["jobs", "Jobs", "briefcase"], ["tracker", "Tracker", "kanban"], ["outreach", "Cold email", "envelope-at"], ["dashboard", "Dashboard", "bar-chart-line"],
   ["coach", "Coach", "chat-dots"], ["profile", "Profile", "person-badge"], ["settings", "Settings", "gear"]];
 
 function paletteItems(q) {

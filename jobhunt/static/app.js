@@ -158,10 +158,11 @@ function renderShell() {
   const tracked = S.jobs.filter(j => TRACK.includes(j.status)).length;
   const contacts = S.jobs.filter(j => j.active && j.contacts.length && (!j.status || j.status === "saved")).length;
   const badge = { tracker: tracked, outreach: contacts };
-  const tabs = [["jobs", "Jobs", "briefcase"], ["outreach", "Cold email", "envelope-at"], ["tracker", "Tracker", "kanban"], ["dashboard", "Dashboard", "bar-chart-line"], ["coach", "Coach", "chat-dots"], ["profile", "Profile", "person-badge"], ["settings", "Settings", "gear"]];
+  const tabs = [["jobs", "Jobs", "briefcase"], ["tracker", "Tracker", "kanban"], ["outreach", "Cold email", "envelope-at"], ["dashboard", "Dashboard", "bar-chart-line"], ["coach", "Coach", "chat-dots"], ["profile", "Profile", "person-badge"], ["settings", "Settings", "gear"]];
   $("#tabs").innerHTML = tabs.map(([v, label, ic]) => `<li class="nav-item"><a class="nav-link d-flex align-items-center gap-2" href="#/${v}" data-view="${v}" title="${label}">${bi(ic)}<span class="nav-text">${label}</span>${badge[v] ? `<span class="badge rounded-pill tag-line">${badge[v]}</span>` : ""}</a></li>`).join("");
   const lr = S.state.last_run;
   $("#last-run").textContent = lr ? `Updated ${ago(lr.finished)}` : "Not searched yet";
+  $("#refresh-btn").title = $("#last-run").textContent;
   const tg = S.state.target || { count: 0, target: 10 }, frac = Math.min(1, tg.count / tg.target), C = 2 * Math.PI * 9;
   $("#target-pill").innerHTML = `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="9" class="tr-bg"/><circle cx="12" cy="12" r="9" class="tr-fg ${frac >= 1 ? "done" : ""}" stroke-dasharray="${(frac * C).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 12 12)"/></svg><span><b>${tg.count}</b>/${tg.target} today</span>`;
   $("#target-pill").title = frac >= 1 ? "Daily target met" : `${tg.target - tg.count} more applications to hit today's target`;
@@ -267,12 +268,10 @@ const currentView = () => (location.hash.replace(/^#\//, "") || "jobs").split("?
 function route() {
   if (!S.state) return;                           // a hash change can arrive before the first load finishes
   const view = currentView();
-  if (S.state.setup.needed && view !== "setup") { location.replace("#/setup"); return; }
-  document.body.classList.toggle("in-setup", view === "setup");
   $("#page-title").textContent = PAGE_TITLES[view] || "Jobs";
   (S.charts || []).forEach(c => c.destroy()); S.charts = [];
   $$("#tabs .nav-link").forEach(a => a.classList.toggle("active", a.dataset.view === view));
-  ({ jobs: renderJobs, tracker: renderTracker, dashboard: renderDashboard, outreach: renderOutreach, coach: renderCoach, profile: renderProfile, settings: renderSettings, setup: renderSetup }[view] || renderJobs)();
+  ({ jobs: renderJobs, tracker: renderTracker, dashboard: renderDashboard, outreach: renderOutreach, coach: renderCoach, profile: renderProfile, settings: renderSettings }[view] || renderJobs)();
   const nav = bootstrap.Collapse.getInstance($("#nav"));
   if (nav) nav.hide();
   drawSwitchers();
@@ -631,7 +630,6 @@ function renderTracker() {
         <a class="btn btn-sm btn-outline-secondary" href="/api/tracker/export.xlsx">${bi("file-earmark-excel")} Export Excel</a>
         <button class="btn btn-sm btn-outline-secondary" data-action="export-csv">${bi("filetype-csv")} CSV</button>
         <button class="btn btn-sm btn-outline-secondary" data-action="cleanup" title="Fix typos and short forms in company and role names">${bi("magic")} Clean up</button>
-        ${S.state.mail && S.state.mail.connected ? `<button class="btn btn-sm ${S.state.mail.pending ? "btn-ink" : "btn-outline-secondary"}" data-action="mail-open">${bi("envelope-check")} Email updates${S.state.mail.pending ? ` <span class="badge text-bg-light">${S.state.mail.pending}</span>` : ""}</button>` : ""}
         <button class="btn btn-sm btn-outline-secondary" data-action="backup-now">${bi("shield-check")} Back up</button>
         <a class="btn btn-sm btn-outline-secondary" href="/api/tracker/template.csv">${bi("download")} Template</a>
         <div class="btn-group btn-group-sm" role="group" aria-label="View">
@@ -1019,7 +1017,7 @@ function renderSettings() {
     <div class="row g-4">
       <div class="col-lg-6">
         <div class="card rise mb-4"><div class="card-body p-4">
-          <div class="d-flex flex-wrap align-items-center gap-2 mb-1"><h4 class="mb-0">AI providers</h4><button class="btn btn-sm btn-outline-secondary ms-auto" data-act="setup-open">${bi("magic")} Run setup again</button></div>
+          <h4 class="mb-1">AI providers</h4>
           <p class="text-body-secondary small">Add a key for any one (or several). JobQuest.AI uses the first ready provider and falls back down the list. Keys are encrypted on this PC with your Windows account, never in OneDrive or git.</p>
           <div class="row g-2 mb-3">${tile("$" + a.spend.usd.toFixed(3), "AI spend")}${tile(a.spend.checks, "AI job checks")}${tile(a.configured ? esc(a.provider.split(" (")[0]) : "None", "in use now")}</div>
           <div id="providers" class="vstack gap-2"><div class="text-body-secondary small">Loading…</div></div>
@@ -1037,10 +1035,15 @@ function renderSettings() {
         </div></div>
       </div>
       <div class="col-lg-6"><div class="card rise mb-4"><div class="card-body p-4">
+        <h4 class="mb-1">Daily target</h4><p class="small text-body-secondary">Reminders come at 1 pm and 6 pm while the app is open.</p>
+        <div class="d-flex flex-wrap align-items-center gap-2"><input type="number" min="1" max="100" class="form-control form-control-sm target-in" id="target-in" value="${st.target.target}" aria-label="Applications a day"><span class="small">applications a day</span>
+          <button class="btn btn-sm btn-ink" data-action="save-target">Save</button><button class="btn btn-sm btn-outline-secondary" data-action="test-reminder">${bi("bell")} Test</button></div>
+      </div></div>
+      <div class="card rise mb-4"><div class="card-body p-4">
         <h4 class="mb-1">Email (Gmail)</h4>
-        ${st.mail.connected ? `<p class="mb-2"><span class="badge rounded-pill text-bg-success">✓ Connected</span> <b class="ms-1">${esc(st.mail.address)}</b>${st.mail.last_sync ? ` <span class="small text-body-secondary">· checked ${ago(st.mail.last_sync)}</span>` : ""}</p>
-          <p class="small text-body-secondary">Every 12 hours JobQuest.AI reads recent job emails (read-only) and suggests tracker updates such as "Rejected" or "OA". Nothing changes until you approve. Emails are sent only after you press Send, at most 50 a day.</p>
-          <div class="d-flex flex-wrap gap-2"><button class="btn btn-sm btn-ink" data-action="mail-sync">${bi("arrow-repeat")} Check email now</button><button class="btn btn-sm btn-outline-danger" data-action="mail-disconnect">Disconnect</button></div>`
+        ${st.mail.connected ? `<p class="mb-2"><span class="badge rounded-pill text-bg-success">✓ Connected</span> <b class="ms-1">${esc(st.mail.address)}</b></p>
+          <p class="small text-body-secondary">Used only to send your cold emails, after you press Send, at most 50 a day. Your inbox is never read.</p>
+          <div class="d-flex flex-wrap gap-2"><button class="btn btn-sm btn-outline-danger" data-action="mail-disconnect">Disconnect</button></div>`
         : gmailWizard()}
       </div></div>
       <div class="card rise mb-4"><div class="card-body p-4">
@@ -1155,38 +1158,12 @@ function oracleScroll(dir, wrap = false) {
   else t.scrollBy({ left: dir * step, behavior: "smooth" });
 }
 
-function oracleChartHTML(c, id) {
-  const note = c.total > (c.rows || c.labels).length ? `Top ${(c.rows || c.labels).length} of ${c.total}` : "";
-  if (c.type === "table") {
-    return `<div class="oc-chart"><div class="fw-semibold mb-1">${esc(c.title)}</div><div class="table-responsive oc-table"><table class="table table-sm mb-0 data-table"><thead><tr>${c.columns.map(h => `<th>${esc(h.replace(/_/g, " "))}</th>`).join("")}</tr></thead>
-      <tbody>${c.rows.map(r => `<tr>${r.map(v => `<td>${esc(v)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${c.columns.length}">No data.</td></tr>`}</tbody></table></div>${note ? `<div class="small text-body-secondary">${note}</div>` : ""}</div>`;
-  }
-  if (!c.values.length) return `<div class="oc-chart"><div class="fw-semibold">${esc(c.title)}</div><div class="small text-body-secondary">No data for this yet.</div></div>`;
-  return `<div class="oc-chart"><div class="fw-semibold mb-1">${esc(c.title)}</div><div class="oc-canvas"><canvas id="${id}" role="img" aria-label="${esc(c.title)}"></canvas></div>${note ? `<div class="small text-body-secondary">${note}</div>` : ""}</div>`;
-}
-
-function drawOracleCharts(msgs) {
-  (S.ocCharts || []).forEach(x => x.destroy()); S.ocCharts = [];
-  if (!window.Chart) return;
-  chartDefaults();
-  const C = palette(), surface = cssVar("--jh-card");
-  msgs.forEach((m, i) => (m.charts || []).forEach((c, k) => {
-    const el = document.getElementById(`oc-c-${i}-${k}`);
-    if (!el) return;
-    const round = c.type === "pie", horizontal = c.type === "bar" && c.labels.length > 6;
-    const ds = { data: c.values, backgroundColor: round ? C : C[0], borderColor: round ? surface : C[0], borderWidth: round ? 2 : c.type === "line" ? 2 : 0, borderRadius: round ? 0 : 4, maxBarThickness: 18, tension: .3, pointRadius: 2 };
-    if (c.type === "histogram") { ds.barPercentage = 1; ds.categoryPercentage = .96; }
-    const value = { beginAtZero: true, ticks: { precision: 0 } }, cat = { grid: { display: false }, ticks: { autoSkip: !horizontal, maxRotation: 0, maxTicksLimit: horizontal ? undefined : 10 } };
-    S.ocCharts.push(new window.Chart(el, { type: round ? "pie" : c.type === "line" ? "line" : "bar", data: { labels: c.labels, datasets: [ds] },
-      options: { indexAxis: horizontal ? "y" : "x", plugins: { legend: { display: round, position: "right" } }, scales: round ? {} : horizontal ? { x: value, y: cat } : { x: cat, y: value } } }));
-  }));
-}
-
 function drawOracleChat(msgs) {
   const box = $("#oc-msgs"); if (!box) return;
-  box.innerHTML = msgs.length ? msgs.map((m, i) => `<div class="oc-msg ${m.role} ${(m.charts || []).length ? "wide" : ""}">${m.role === "user" ? esc(m.content) : mdLite(m.content)}${(m.charts || []).map((c, k) => oracleChartHTML(c, `oc-c-${i}-${k}`)).join("")}</div>`).join("")
-    : `<div class="small text-body-secondary">Ask anything about your search, or ask for any bar chart, pie chart, table or histogram. The oracle sees your company and role names with their counts, but not your notes, contacts or emails.</div>`;
-  drawOracleCharts(msgs);
+  box.innerHTML = msgs.length ? msgs.map((m, i) => `<div class="oc-msg ${m.role} ${(m.charts || []).length ? "wide" : ""}">${m.role === "user" ? esc(m.content) : mdLite(m.content)}${(m.charts || []).map((c, k) => specCard(c, `oc-c-${i}-${k}`, { pin: true })).join("")}</div>`).join("")
+    : `<div class="small text-body-secondary">Ask anything about your search, or ask for any chart, table or list. The oracle sees your company and role names with their counts, but not your notes, contacts or emails.</div>`;
+  (S.ocCharts || []).forEach(x => x.destroy()); S.ocCharts = [];
+  msgs.forEach((m, i) => (m.charts || []).forEach((c, k) => drawSpec(c, `oc-c-${i}-${k}`, S.ocCharts)));
   box.scrollTop = box.scrollHeight;
 }
 
@@ -1227,53 +1204,18 @@ async function runInsights() {
 async function saveTarget() {
   try {
     S.state.target = await api("/api/settings/target", { method: "PUT", json: { target: Number($("#target-in").value) } });
-    renderShell(); renderDashboard(); toast(`Daily target: ${S.state.target.target}`, 2000);
+    renderShell(); toast(`Daily target: ${S.state.target.target}`, 2000);
   } catch (e) { toast(e.message, 5000); }
 }
 
-// ---------------------------------------------------------------- Gmail: review suggested updates, compose and send
+// ---------------------------------------------------------------- Gmail: compose and send
 
 async function mailConnect() {
   try {
     toast("Testing the login with Gmail…", 15000);
     S.state.mail = await api("/api/mail/settings", { method: "PUT", json: { address: $("#mail-addr").value, app_password: $("#mail-pw").value } });
-    toast("Gmail connected.", 3000); (currentView() === "setup" ? renderSetup : renderSettings)();
+    toast("Gmail connected.", 3000); renderSettings();
   } catch (e) { const box = $("#mail-err"); if (box) { box.textContent = e.message; box.classList.remove("d-none"); } toast("Gmail didn't connect - see the message under the form.", 4000); }
-}
-
-async function mailSync(openAfter = true) {
-  try {
-    toast("Checking Gmail…", 30000);
-    const r = await api("/api/mail/sync", { method: "POST" });
-    S.state.mail = r; toast(r.proposals.length ? `${r.proposals.length} suggested update(s)` : "No new application updates.", 3500);
-    if (openAfter && r.proposals.length) showMailReview(r.proposals); else if (currentView() === "settings") renderSettings(); else route();
-  } catch (e) { toast(e.message, 9000); }
-}
-
-async function openMailReview() {
-  try { showMailReview((await api("/api/mail")).proposals); } catch (e) { toast(e.message, 7000); }
-}
-
-function showMailReview(items) {
-  $("#ai-modal-body").innerHTML = `<div class="d-flex align-items-center gap-2 mb-1"><h5 class="mb-0">${bi("envelope-check")} Suggested updates from Gmail</h5>
-      <button class="btn btn-sm btn-outline-secondary ms-auto" data-action="mail-sync">${bi("arrow-repeat")} Check again</button></div>
-    <div class="small text-body-secondary mb-3">Read-only scan of the last 14 days. Tick the ones that are right and apply them; the email subject is added to the notes.</div>
-    ${items.length ? `<div class="vstack gap-2">${items.map(p => `<label class="prov d-flex gap-3 align-items-start"><input type="checkbox" class="form-check-input mt-1" data-mail="${esc(p.msg_id)}" checked>
-        <div class="flex-grow-1"><div><b>${esc(p.company)}</b> · ${esc(p.role)} <span class="ms-1 small">${esc(STATUS[p.current] || p.current)} → <b>${esc(STATUS[p.proposed] || p.proposed)}</b></span></div>
-          <div class="small fw-semibold mt-1">${esc(p.subject)}</div><div class="small text-body-secondary">${esc(p.from_name || p.from)} · ${p.date ? fmtDate(p.date) : ""} — ${esc(p.snippet)}</div></div></label>`).join("")}</div>
-      <div class="d-flex gap-2 mt-3"><button class="btn btn-sm btn-ink" data-action="mail-apply">${bi("check2")} Apply ticked</button><button class="btn btn-sm btn-outline-secondary" data-action="mail-dismiss">Dismiss ticked</button></div>`
-      : `<div class="text-body-secondary py-3">Nothing to review. New rejections, OAs, interview invites and offers will show up here.</div>`}`;
-  bootstrap.Modal.getOrCreateInstance($("#ai-modal")).show();
-}
-
-async function mailReview(apply) {
-  const ids = $$("[data-mail]").filter(x => x.checked).map(x => x.dataset.mail);
-  if (!ids.length) return;
-  try {
-    const r = await api("/api/mail/review", { method: "POST", json: { ids, apply } });
-    toast(apply ? `Updated ${r.applied} application(s)` : `Dismissed ${ids.length}`, 3000);
-    await loadAll(); showMailReview(r.proposals);
-  } catch (e) { toast(e.message, 7000); }
 }
 
 // one compose window for every "send" in the app; nothing is sent until Send is pressed
@@ -1683,10 +1625,9 @@ document.addEventListener("click", async e => {
     return;
   }
   if (e.target.closest("a[href]")) return;
-  const df = e.target.closest("[data-drange],[data-dgrain]");
+  const df = e.target.closest("[data-drange]");
   if (df) {
     if (df.dataset.drange) S.dRange = df.dataset.drange;
-    if (df.dataset.dgrain) S.dGrain = df.dataset.dgrain;
     return renderDashboard();
   }
   const tb = e.target.closest("[data-tsort],[data-tstatus],[data-tview]");
@@ -1747,10 +1688,6 @@ document.addEventListener("click", async e => {
       toast("After you send it, press Mark as sent on the contact so it counts as an application.", 6000); return;
     case "mail-connect": return mailConnect();
     case "mail-disconnect": if (await ask("Disconnect Gmail?", "The app password is removed from this PC.", "Disconnect", true)) { S.state.mail = await api("/api/mail/settings", { method: "DELETE" }); renderSettings(); } return;
-    case "mail-sync": return mailSync();
-    case "mail-open": return openMailReview();
-    case "mail-apply": return mailReview(true);
-    case "mail-dismiss": return mailReview(false);
     case "or-extract": return orExtract();
     case "or-unshot": S.orShots.splice(Number(el.dataset.i), 1); return addShots([]);
     case "or-add": S.orContacts.unshift({ id: Math.random().toString(16).slice(2, 12), name: "", email: "", title: "", company: "", job_role: "", notes: "" }); saveContactsSoon(); return drawContacts();
