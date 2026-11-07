@@ -10,7 +10,7 @@ set "SRC=%~dp0"
   --icon "%SRC%packaging\jobquestai.ico" ^
   --add-data "%SRC%jobhunt\static;jobhunt\static" ^
   --add-data "%SRC%config.toml;." ^
-  --collect-submodules uvicorn --collect-data docx ^
+  --collect-submodules uvicorn --collect-submodules pymongo --collect-submodules dns --collect-data docx ^
   --paths "%SRC%." ^
   --workpath "%USERPROFILE%\.jobhuntai\build" --specpath "%USERPROFILE%\.jobhuntai\build" --distpath "%SRC%." ^
   "%SRC%packaging\launcher.py" || exit /b 1

@@ -28,6 +28,9 @@ class Location(unittest.TestCase):
         self.assertEqual(F.india_cities("Hyderabad, Telangana, IND"), ["Hyderabad"])
         self.assertEqual(F.india_cities("Pune, India"), ["Pune"])           # regressed once: \b written as a backspace
         self.assertEqual(F.india_cities("New Delhi"), ["Delhi NCR"])
+        self.assertEqual(F.india_cities("Bhopal, Madhya Pradesh, India"), ["Bhopal"])
+        self.assertEqual(F.india_cities("Mangalore; Panaji, Goa"), ["Mangaluru", "Goa"])
+        self.assertEqual(F.india_cities("Surathkal"), [])
 
 
 class Roles(unittest.TestCase):

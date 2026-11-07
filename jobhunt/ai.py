@@ -6,6 +6,7 @@ refresh and comes first in the prompt, which lets OpenAI's prompt cache reuse it
 """
 import json
 import threading
+import time
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -79,20 +80,22 @@ JOB_SYSTEM = (
     "only the posting text and the candidate profile, never assume. The candidate wants SDE and/or ML roles with "
     "under 3 years of required experience, located in India.\n"
     "Scoring: weigh the posting's must-have skills and level against the candidate's skills, projects and experience. "
-    "A role demanding 3+ years, or not in India, is never a fit.\n\n")
+    "A role demanding 3+ years (or more than the candidate block accepts), or not in India, is never a fit.\n\n")
 
 
 # ---------------------------------------------------------------- client
 
 class AI:
     label = "OpenAI"
+    provider = "openai"
     json_mode = False                   # set when the provider can't do strict JSON-schema output
-    def __init__(self, api_key, model, reasoning_effort=None, prices=None, base_url=None, label="OpenAI"):
+    def __init__(self, api_key, model, reasoning_effort=None, prices=None, base_url=None, label="OpenAI", provider="openai"):
         from openai import OpenAI
         self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=180 if "11434" in (base_url or "") else 90,
                              max_retries=2)
         self.model = model
         self.label = label
+        self.provider = provider
         self.effort = reasoning_effort or None
         self.price = (prices or {}).get(model)
         self.tokens_in = self.tokens_out = 0
@@ -102,6 +105,16 @@ class AI:
         """Raise if the key or model is wrong. One cheap metadata call, no tokens."""
         self.client.models.retrieve(self.model)
 
+    def _used(self, r, feature, started):
+        """Count one response's tokens for this run, and log it for the usage dashboard."""
+        from . import llm
+        ti = (r.usage.prompt_tokens or 0) if r.usage else 0
+        to = (r.usage.completion_tokens or 0) if r.usage else 0
+        with self._lock:
+            self.tokens_in += ti
+            self.tokens_out += to
+        llm.record(self.provider, self.model, feature, ti, to, started)
+
     def cost(self, tokens_in=None, tokens_out=None):
         if not self.price:
             return None
@@ -109,10 +122,11 @@ class AI:
         to = self.tokens_out if tokens_out is None else tokens_out
         return round((ti * self.price[0] + to * self.price[1]) / 1_000_000, 5)
 
-    def _parse(self, schema, messages, max_tokens, cache_key=None):
+    def _parse(self, schema, messages, max_tokens, cache_key=None, feature="screening"):
         import openai
         if self.json_mode:
-            return self._parse_json(schema, messages, max_tokens)
+            return self._parse_json(schema, messages, max_tokens, feature)
+        started = time.monotonic()
         kw = dict(model=self.model, messages=messages, response_format=schema, max_completion_tokens=max_tokens)
         if self.effort:
             kw["reasoning_effort"] = self.effort
@@ -131,7 +145,7 @@ class AI:
                     kw.pop("prompt_cache_key")
                 elif "response_format" in msg or "json_schema" in msg or "schema" in msg:
                     self.json_mode = True
-                    return self._parse_json(schema, messages, max_tokens)
+                    return self._parse_json(schema, messages, max_tokens, feature)
                 else:
                     raise AIError(_short(e)) from e
             except openai.AuthenticationError as e:
@@ -146,10 +160,7 @@ class AI:
                 raise AIError(_short(e)) from e
         else:
             raise AIError(f"{self.label} kept rejecting the request parameters.")
-        if r.usage:
-            with self._lock:
-                self.tokens_in += r.usage.prompt_tokens or 0
-                self.tokens_out += r.usage.completion_tokens or 0
+        self._used(r, feature, started)
         msg = r.choices[0].message
         if getattr(msg, "refusal", None):
             raise AIError(f"Model refused: {msg.refusal}")
@@ -157,7 +168,7 @@ class AI:
             raise AIError("Model returned no structured answer (output may have been cut off).")
         return msg.parsed
 
-    def _parse_json(self, schema, messages, max_tokens):
+    def _parse_json(self, schema, messages, max_tokens, feature="screening"):
         """Fallback for providers without strict structured output: ask for JSON matching the schema, then validate."""
         import openai
         from pydantic import ValidationError
@@ -166,6 +177,7 @@ class AI:
         msgs[0]["content"] += f"\n\nAnswer with one JSON object only, no prose, matching this JSON schema:\n{spec}"
         last = None
         for _ in range(2):
+            started = time.monotonic()
             try:
                 r = self.client.chat.completions.create(model=self.model, messages=msgs, max_tokens=max_tokens,
                                                         response_format={"type": "json_object"})
@@ -173,10 +185,7 @@ class AI:
                 r = self.client.chat.completions.create(model=self.model, messages=msgs, max_tokens=max_tokens)
             except openai.APIError as e:
                 raise AIError(f"{self.label}: {_short(e)}") from e
-            if r.usage:
-                with self._lock:
-                    self.tokens_in += r.usage.prompt_tokens or 0
-                    self.tokens_out += r.usage.completion_tokens or 0
+            self._used(r, feature, started)
             text = (r.choices[0].message.content or "").strip()
             text = text[text.find("{"):text.rfind("}") + 1] if "{" in text else text
             try:
@@ -187,7 +196,7 @@ class AI:
 
     def read_resume(self, text):
         out = self._parse(ResumeInsights, [{"role": "system", "content": RESUME_SYSTEM},
-                                           {"role": "user", "content": text[:30000]}], 4000)
+                                           {"role": "user", "content": text[:30000]}], 4000, feature="resume")
         return out.model_dump()
 
     def assess(self, candidate_block, job, cache_key=None):
@@ -218,22 +227,30 @@ def rejected(assessment, max_years=2):
     return too_senior or (not assessment.get("in_india", True)) or (not assessment.get("role_match", True))
 
 
-def client_from_settings(cfg=None):
-    """An AI client for the first ready provider (Settings -> AI providers order), else None."""
+def client_for(pid, model=None, cfg=None):
+    """An AI client for one provider and model."""
     from . import llm
     cfg = cfg or settings.load_config()
     env = settings.read_env()
-    # Bulk job screening needs a strong, fast model; a small local model is kept for cover letters and the Coach
-    # unless [ai] screen_with_local = true in config.toml.
-    ready = [p for p in llm.configured(env) if p != "ollama" or cfg["ai"].get("screen_with_local")]
-    if not ready:
-        return None
-    pid = ready[0]
     label, base, _, var, *_ = llm.PROVIDERS[pid]
     a = cfg["ai"]
-    model = llm.model_for(pid, env)
     effort = a.get("reasoning_effort") if pid == "openai" else None
-    return AI(env.get(var) if var else "ollama", model, effort, a.get("prices"), base, label)
+    return AI(env.get(var) if var else "ollama", model or llm.model_for(pid, env), effort, a.get("prices"), base, label, pid)
+
+
+def client_from_settings(cfg=None):
+    """The screening model: your pick from the switcher, else the first ready provider in Settings order."""
+    from . import llm
+    cfg = cfg or settings.load_config()
+    env = settings.read_env()
+    ready = llm.configured(env)
+    pick = llm.force_choice() if llm.force_choice() and llm.force_choice()["provider"] in ready else llm.screen_choice()
+    if pick and pick["provider"] in ready:
+        return client_for(pick["provider"], pick.get("model"), cfg)
+    # Bulk job screening needs a strong, fast model; a small local model is kept for cover letters and the Coach
+    # unless [ai] screen_with_local = true in config.toml.
+    ready = [p for p in ready if p != "ollama" or cfg["ai"].get("screen_with_local")]
+    return client_for(ready[0], None, cfg) if ready else None
 
 
 def key_hint():

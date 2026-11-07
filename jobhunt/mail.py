@@ -1,12 +1,14 @@
 """Gmail over IMAP/SMTP with an app password.
 
 Reading is read-only (BODY.PEEK, readonly mailbox) and only proposes tracker updates; nothing changes until you
-click Apply. Sending happens one message at a time, only when you press Send.
+click Apply. Sending happens one message at a time, only after you press Send, within a daily limit (outbox.py sends a
+reviewed batch).
 """
 import email
 import imaplib
 import re
 import smtplib
+import threading
 from datetime import date, datetime, timedelta, timezone
 from email.message import EmailMessage
 from email.utils import parseaddr, parsedate_to_datetime
@@ -16,6 +18,8 @@ from . import db, settings
 IMAP_HOST, SMTP_HOST = "imap.gmail.com", "smtp.gmail.com"
 ADDR_VAR, PASS_VAR = "GMAIL_ADDRESS", "GMAIL_APP_PASSWORD"
 EMAIL_RX = re.compile(r"^[\w.+-]+@[\w-]+(\.[\w-]+)+$")
+DAILY_CAP = 50                  # well under Gmail's own limits, to keep cold email from looking like a bulk sender
+_log_lock = threading.Lock()
 SEARCH = ('newer_than:{days}d (application OR applying OR interview OR assessment OR offer OR unfortunately OR '
           'candidate OR candidacy OR recruiter OR hiring OR "next steps" OR hackerrank OR codility OR shortlisted)')
 
@@ -67,9 +71,9 @@ def _imap(addr, pw):
         return m
     except imaplib.IMAP4.error as e:
         why = e.args[0].decode(errors="replace") if e.args and isinstance(e.args[0], bytes) else str(e)
-        raise MailError("Gmail refused the login (" + why.strip()[:120] + "). Use a 16-letter app password from "
-                        "myaccount.google.com/apppasswords - your normal Gmail password won't work - and check the "
-                        "address is the same Google account.") from e
+        raise MailError("Gmail refused the login (" + why.strip()[:120] + "). Gmail needs an app password here, not your "
+                        "normal password: create one at myaccount.google.com/apppasswords, and check the address is "
+                        "the same Google account.") from e
     except OSError as e:
         raise MailError(f"Couldn't reach Gmail: {e}") from e
 
@@ -79,10 +83,8 @@ def connect(addr, pw):
     if not EMAIL_RX.match(addr):
         raise MailError("That doesn't look like an email address.")
     pw = _clean(pw)
-    if not re.fullmatch(r"[A-Za-z]{16}", pw):
-        raise MailError(f"That's {len(pw)} characters, so it isn't a Gmail app password. Google app passwords are "
-                        "exactly 16 letters (shown as 4 groups of 4). Turn on 2-Step Verification, then create one at "
-                        "myaccount.google.com/apppasswords and paste it here.")
+    if not pw:
+        raise MailError("Paste your app password first.")
     _imap(addr, pw).logout()
     settings.write_env({ADDR_VAR: addr, PASS_VAR: pw})
 
@@ -240,7 +242,7 @@ def review(msg_ids, apply):
             keep.append(p)
             continue
         if apply and db.get_job(p["job_id"]):
-            db.set_status(p["job_id"], p["proposed"], None)
+            db.set_status(p["job_id"], p["proposed"], None, at=p.get("date"))
             j = db.get_job(p["job_id"])
             note = f"[{(p.get('date') or '')[:10]}] Email: {p['subject']}"
             db.edit_entry(p["job_id"], {"notes": ((j["notes"] or "") + "\n" + note).strip(),
@@ -271,10 +273,18 @@ def build_message(sender, to, subject, body, attachments=()):
     return msg
 
 
+def sent_today():
+    today = date.today().isoformat()
+    return sum(1 for m in db.get_setting("mail_sent") or []
+               if datetime.fromisoformat(m["at"]).astimezone().date().isoformat() == today)
+
+
 def send(to, subject, body, job_id=None, attachments=()):
     addr, pw = account()
     if not (addr and pw):
         raise MailError("Connect Gmail in Settings first.")
+    if sent_today() >= DAILY_CAP:
+        raise MailError(f"You've reached today's limit of {DAILY_CAP} emails. This keeps your Gmail account safe; try tomorrow.")
     to = to.strip()
     if not EMAIL_RX.match(to):
         raise MailError("Enter one valid recipient address.")
@@ -296,7 +306,9 @@ def send(to, subject, body, job_id=None, attachments=()):
         if not (j["contact"] or "").strip():
             fields["contact"] = to
         db.edit_entry(job_id, fields)
-    log = db.get_setting("mail_sent") or []
-    db.set_setting("mail_sent", (log + [{"to": to, "subject": subject.strip()[:200], "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                                         "job_id": job_id}])[-200:])
+    with _log_lock:
+        log = db.get_setting("mail_sent") or []
+        db.set_setting("mail_sent", (log + [{"to": to, "subject": subject.strip()[:200],
+                                             "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                                             "job_id": job_id}])[-200:])
     return True

@@ -9,7 +9,7 @@ from . import resume as R
 from .skills import find_skills
 
 DEFAULTS = {"current_city": "", "phone": "", "preferred_cities": [], "roles": ["SDE", "ML"],
-            "include_internships": True, "about": ""}
+            "include_internships": True, "about": "", "max_years": 2}
 
 
 def preferences():
@@ -28,7 +28,7 @@ def save_preferences(update):
     return p
 
 
-MAX_RESUMES = 10
+MAX_RESUMES = 30
 TARGET_ROLES = ["Software Engineer", "Machine Learning Engineer", "AI Engineer", "Data Scientist", "Data Engineer",
                 "Full Stack Engineer", "Backend Engineer", "Frontend Engineer", "DevOps / Cloud Engineer", "Other"]
 # which resume role suits which job family (stats.role_family names)
@@ -128,9 +128,9 @@ def add_resume(data, filename, label=None, ai_client=None, source="", sha="", ta
     path.write_bytes(data)
     try:
         parsed = R.parse(path)
-    except R.ResumeError:
+    except R.ResumeError as e:
         path.unlink(missing_ok=True)
-        raise
+        raise R.ResumeError(str(e).replace(path.name, filename)) from e
     insights, ai_error = None, None
     if ai_client:
         try:
@@ -176,8 +176,9 @@ def scoring_profiles():
 def signature(model=""):
     """Changes whenever anything the AI's job verdicts depend on changes, so those get re-checked."""
     prefs = preferences()
+    keys = ("roles", "current_city", "preferred_cities", "about") + (("max_years",) if prefs["max_years"] != 2 else ())
     blob = json.dumps([[(r["id"], r["ai"]) for r in db.resumes()],
-                       {k: prefs[k] for k in ("roles", "current_city", "preferred_cities", "about")}, model,
+                       {k: prefs[k] for k in keys}, model,
                        ai.SCHEMA_VERSION],
                       sort_keys=True, default=str)
     return hashlib.sha1(blob.encode()).hexdigest()[:16]
@@ -193,6 +194,8 @@ def candidate_block():
     if prefs["preferred_cities"]:
         lines.append("Wants to work in: " + ", ".join(prefs["preferred_cities"]) + " (or remote within India)")
     lines.append("Target roles: " + ", ".join(prefs["roles"]))
+    if prefs["max_years"] != 2:
+        lines.append(f"Accepts roles requiring up to {prefs['max_years']} years of experience.")
     if prefs["about"]:
         lines.append("Note: " + prefs["about"])
     for r in rs:

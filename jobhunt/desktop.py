@@ -51,6 +51,7 @@ def _background(cfg):
         try:
             api.maybe_auto_refresh(hours)
             _maybe_mail_sync(hours)
+            _maybe_cloud_sync()
             now = datetime.now()
             key = f"{date.today().isoformat()}-{now.hour}"
             if now.hour in REMINDER_HOURS and db.get_setting("last_reminder") != key:
@@ -75,6 +76,14 @@ def _maybe_mail_sync(hours):
         print(f"mail sync: {e}")
 
 
+def _maybe_cloud_sync(force=False):
+    from . import backup, cloud
+    try:
+        cloud.sync_if_due(force)
+    except (cloud.CloudError, backup.BackupError, OSError) as e:
+        print(f"cloud sync: {e}")
+
+
 def _profile_in_use():
     """Chromium holds <user-data-dir>/lockfile open without sharing while any window of that profile is open."""
     lock = settings.HOME / "app-window" / "lockfile"
@@ -85,6 +94,17 @@ def _profile_in_use():
             return False
     except OSError:
         return True
+
+
+def _wait_until_closed(window, checks=5, gap=3):
+    """Returns once the app window is really gone. The process we started proves little: Edge's launcher often hands
+    over to another process and exits at once, before that one has locked the profile. So the profile must stay
+    unlocked for several checks in a row, which also covers a slow start."""
+    window.wait()
+    free = 0
+    while free < checks:
+        free = 0 if _profile_in_use() else free + 1
+        time.sleep(gap)
 
 
 def _message(text, title="JobQuest.AI"):
@@ -123,12 +143,15 @@ def main():
     port = cfg["server"]["port"]
     url = f"http://127.0.0.1:{port}/"
     if cli._running(port):
-        open_window(url)
+        from . import vault
+        open_window(url + f"?k={vault.session() or ''}")
         return 0
 
     import uvicorn
     from . import api
+    from . import vault
     api.app.state.allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+    api.app.state.token = vault.new_session()
     server = uvicorn.Server(uvicorn.Config(api.app, host="127.0.0.1", port=port, log_level="warning",
                                            log_config=None, use_colors=False))
     thread = threading.Thread(target=server.run, daemon=True, name="server")
@@ -146,15 +169,12 @@ def main():
     api.maybe_auto_refresh(cfg["server"].get("auto_refresh_hours", 12))
 
     threading.Thread(target=_background, args=(cfg,), daemon=True, name="reminders").start()
-    window = open_window(url)
+    threading.Thread(target=_maybe_cloud_sync, args=(True,), daemon=True, name="cloud-sync").start()    # opening the app syncs at once
+    window = open_window(url + f"?k={api.app.state.token}")
     if window is None:              # no app-mode browser: keep serving until Windows ends the process
         thread.join()
         return 0
-    window.wait()
-    # If a window from an earlier run was still open, the new browser process hands over to it and exits at once.
-    # Keep serving while that window's profile is still locked.
-    while _profile_in_use():
-        time.sleep(3)
+    _wait_until_closed(window)
     server.should_exit = True
     thread.join(timeout=8)
     print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} window closed, JobQuest.AI stopped")

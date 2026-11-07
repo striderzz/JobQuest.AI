@@ -125,13 +125,15 @@ def seed(days=30, seed_value=7):
     db.finish_run(rid, ok=1, raw=12840, kept=34, new=9, ai_checked=34,
                   sources={"Greenhouse": 4210, "Lever": 860, "Ashby": 1290, "SmartRecruiters": 2100, "Workday": 3980, "amazon.jobs": 400})
     db.set_setting("daily_target", 10)
-    db.set_setting("coach_history", [
-        {"role": "user", "content": "How do I get more interview calls for ML roles?"},
-        {"role": "assistant", "provider": "OpenAI", "content":
-            "## What your numbers say\n- 125 applications, **11% reach a screening or test** - solid for new grads.\n"
-            "- Referrals convert about 3x better than cold applies in your tracker.\n\n## This week\n"
-            "- Ask for **2 referrals a day** at Big Tech and US scale-ups.\n- Lead your resume with the RAG project "
-            "and its 40% impact.\n- Apply within 48 hours of posting - use the New today filter."}])
+    cid = db.new_conversation("More interview calls for ML roles", "openai", "gpt-6-luna")
+    db.add_coach_message(cid, "user", "How do I get more interview calls for ML roles?")
+    db.add_coach_message(cid, "assistant",
+                         "## What your numbers say\n- 125 applications, **11% reach a screening or test** - solid for new grads.\n"
+                         "- Referrals convert about 3x better than cold applies in your tracker.\n\n## This week\n"
+                         "- Ask for **2 referrals a day** at Big Tech and US scale-ups.\n- Lead your resume with the RAG project "
+                         "and its 40% impact.\n- Apply within 48 hours of posting - use the New today filter.",
+                         provider="OpenAI", model="gpt-6-luna",
+                         actions=[{"label": x, "prompt": x} for x in ("Write a referral request", "Rewrite my resume summary")])
     db.set_setting("ai_insights", {"provider": "OpenAI", "at": now.isoformat(timespec="seconds"), "text":
         "## Summary\nSteady volume (about 4 a day) with an 11% screen rate; offers are starting to come through.\n\n"
         "## Insights\n- Referral and cold-email applications respond about 3x more than job-board applies.\n"
@@ -139,11 +141,42 @@ def seed(days=30, seed_value=7):
         "roles respond faster.\n\n## Next 7 days\n- Hit 10 a day with 2 referrals or cold emails in each batch.\n"
         "- Follow up on applications older than 14 days without a reply.\n- Practise system design for the 5 "
         "interviews in progress."})
-    db.set_setting("outreach_contacts", [
+    db.save_contacts([
         {"id": uuid.uuid4().hex[:10], "name": "Priya Nair", "email": "priya.nair@tailspin.example", "title": "Talent Partner",
          "company": "Tailspin Data", "job_role": "ML Engineer (0-2 yrs)", "location": "Bengaluru",
          "notes": "Subject line: ML Engineer - <Your Name>", "added": now.isoformat()},
+        {"id": uuid.uuid4().hex[:10], "name": "Rohan Iyer", "email": "rohan.iyer@contoso.example", "title": "Campus Recruiter",
+         "company": "Contoso Cloud", "job_role": "Software Engineer", "location": "Hyderabad", "notes": "", "added": now.isoformat()},
         {"id": uuid.uuid4().hex[:10], "name": "Karan Mehta", "email": "karan.m@litware.example", "title": "Engineering Manager",
          "company": "Litware Fintech", "job_role": "Backend SDE", "location": "Pune", "notes": "", "added": now.isoformat(),
-         "sent_at": now.isoformat()}])
+         "sent_at": now.isoformat(), "status": "sent"}])
+    _demo_models_and_usage(rnd, now)
     return settings.HOME
+
+
+def _demo_models_and_usage(rnd, now):
+    """Salaries, second opinions from other models, reply dates and token use, so every screen has something to show."""
+    jobs = db.list_jobs()
+    open_jobs = [j for j in jobs if j["active"]]
+    for j in open_jobs[::3]:
+        lo = rnd.choice((6, 8, 10, 12, 15, 18))
+        db.set_salary(j["id"], {"salary_min": lo * 100_000, "salary_max": (lo + rnd.choice((2, 4, 6))) * 100_000,
+                                "salary_currency": "INR", "salary_src": "posted"})
+    for j in sorted(open_jobs, key=lambda x: -(x["score"] or 0))[:14]:
+        base = j["ai_score"] or 70
+        for pid, model, drift in (("openai", "gpt-6-luna", 0), ("gemini", "gemini-2.5-flash", 8), ("groq", "llama-3.3-70b-versatile", 24)):
+            score = max(5, min(99, base + rnd.randint(-drift, drift)))
+            db.save_verdict(j["id"], pid, model, "demo", {"fit_score": score, "verdict": "good" if score >= 70 else "stretch",
+                                                          "reasons": ["Skills line up with the posting's must-haves."]}, False)
+    with db.conn() as c:
+        for j in jobs:
+            if j["status"] in ("screening", "oa", "interviewing", "offer", "rejected") and j["applied_on"]:
+                when = date.fromisoformat(j["applied_on"]) + timedelta(days=min(rnd.randint(1, 24), (date.today() - date.fromisoformat(j["applied_on"])).days))
+                c.execute("INSERT INTO status_history(job_id, status, at) VALUES(?,?,?)", (j["id"], j["status"], f"{when.isoformat()}T10:00:00+00:00"))
+    plan = [("openai", "gpt-6-luna", "screening", 0.10, 0.50, 1400), ("gemini", "gemini-2.5-flash", "screening", 0.30, 2.50, 900),
+            ("groq", "llama-3.3-70b-versatile", "screening", 0.59, 0.79, 420), ("openai", "gpt-6-luna", "coach", 0.10, 0.50, 2100),
+            ("openai", "gpt-6-luna", "email", 0.10, 0.50, 1700), ("ollama", "qwen3.5:4b", "cover_letter", 0, 0, 6200)]
+    for pid, model, feature, pin, pout, ms in plan:
+        for _ in range(18):
+            ti, to = rnd.randint(1200, 3400), rnd.randint(180, 620)
+            db.record_usage(pid, model, feature, ti, to, round((ti * pin + to * pout) / 1_000_000, 6), ms + rnd.randint(-120, 300))

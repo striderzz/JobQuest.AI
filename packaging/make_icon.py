@@ -1,4 +1,4 @@
-"""Draws packaging/jobquestai.ico (and .png): a white skyscraper on a black rounded square.
+"""Writes packaging/jobquestai.ico (and .png) from wolf.png, or from the skyscraper shapes if that file is missing.
 
 One shape list on a 32-unit grid drives both the raster icon and `svg()` (the in-app logo and favicon), so they
 always match. Run directly to write the icon; `python make_icon.py --svg` prints the SVG.
@@ -52,8 +52,10 @@ if __name__ == "__main__":
         print(svg(background="--tile" in sys.argv))
         sys.exit()
     from PIL import Image
-    img = raster()
+    wolf = Path(__file__).with_name("wolf.png")          # the app icon, drawn in GIMP; the shapes above stay the in-app logo
+    img = Image.open(wolf).convert("RGBA") if wolf.exists() else raster()
     out = Path(__file__).with_name("jobquestai.ico")
     img.save(out, sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
     img.resize((256, 256), Image.LANCZOS).save(out.with_suffix(".png"))
+    img.resize((256, 256), Image.LANCZOS).save(Path(__file__).parent.parent / "jobhunt" / "static" / "icon.png")   # tab, title bar, sidebar
     print("wrote", out)

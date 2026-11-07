@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timezone
 
 from . import ai as AI
-from . import db, filters, match, pipeline, profile, settings
+from . import db, filters, llm, match, pipeline, profile, settings
 
 
 class Progress:
@@ -15,11 +15,23 @@ class Progress:
     def __init__(self):
         self._lock = threading.Lock()
         self.state = {"running": False, "phase": "", "detail": "", "done": 0, "total": 0,
-                      "started": None, "finished": None, "error": None, "result": None}
+                      "started": None, "finished": None, "error": None, "result": None, "models": []}
 
     def update(self, **kw):
         with self._lock:
             self.state.update(kw)
+
+    def lane(self, key, **kw):
+        """One model's row in the progress panel."""
+        with self._lock:
+            lanes = [dict(x) for x in self.state["models"]]
+            for x in lanes:
+                if x["key"] == key:
+                    x.update(kw)
+                    break
+            else:
+                lanes.append({"key": key} | kw)
+            self.state["models"] = lanes
 
     def snapshot(self):
         with self._lock:
@@ -30,7 +42,7 @@ class Progress:
 
 # (phase prefix, start %, end %) - one overall bar across the whole search
 PHASES = [("Starting", 0, 2), ("AI is reading", 2, 5), ("Searching", 5, 70), ("Filtering", 70, 75),
-          ("AI is checking", 75, 98), ("Saving", 98, 99), ("Done", 100, 100)]
+          ("AI is checking", 75, 90), ("Comparing", 90, 98), ("Saving", 98, 99), ("Done", 100, 100)]
 
 
 def overall_percent(s):
@@ -103,11 +115,12 @@ def run(progress=PROGRESS):
     try:
         with _FileLock():
             progress.update(running=True, phase="Starting", detail="", done=0, total=0, started=db.now_iso(),
-                            finished=None, error=None, result=None)
+                            finished=None, error=None, result=None, models=[])
             cfg = settings.load_config()
             prefs = profile.preferences()
             s = cfg["search"]
             s["roles"], s["include_internships"] = prefs["roles"], prefs["include_internships"]
+            s["max_years"] = min(int(prefs["max_years"]), settings.MAX_YEARS_CHOICE)
             client = AI.client_from_settings(cfg)
             if client:
                 progress.update(phase="AI is reading your resume")
@@ -136,13 +149,15 @@ def run(progress=PROGRESS):
             checked, ai_error = 0, None
             if client:
                 checked, ai_error = _ai_pass(client, cfg, s["max_years"], progress)
+            compared = _compare_pass(client, cfg, s["max_years"], progress) if client else {"checked": 0, "cost": 0, "in": 0, "out": 0}
 
+            cost = ((client.cost() or 0) + compared["cost"]) if client else None
             result = {"raw": len(raw), "candidates": stats["after_title_location_date"], "kept": len(jobs), "new": new,
-                      "ai_checked": checked, "ai_cost_usd": client.cost() if client else None, "ai_error": ai_error,
+                      "ai_checked": checked, "ai_compared": compared["checked"], "ai_cost_usd": cost, "ai_error": ai_error,
                       "failed_sources": sorted(k for k, v in status.items() if not isinstance(v, int))}
             db.finish_run(run_id, ok=1, raw=len(raw), candidates=result["candidates"], kept=len(jobs), new=new,
-                          ai_checked=checked, ai_in=client.tokens_in if client else 0,
-                          ai_out=client.tokens_out if client else 0, ai_cost=(client.cost() or 0) if client else 0,
+                          ai_checked=checked + compared["checked"], ai_in=(client.tokens_in if client else 0) + compared["in"],
+                          ai_out=(client.tokens_out if client else 0) + compared["out"], ai_cost=cost or 0,
                           sources=status, error=ai_error)
             try:
                 from . import backup
@@ -165,6 +180,8 @@ def _ai_pass(client, cfg, max_years, progress):
     todo = db.jobs_for_ai(sig, cfg["ai"]["max_jobs_per_refresh"])
     block = profile.candidate_block()
     progress.update(phase="AI is checking jobs", done=0, total=len(todo), detail=client.model)
+    key = f"{client.provider}/{client.model}"
+    progress.lane(key, label=client.label, model=client.model, done=0, total=len(todo), state="running", main=True)
     stop = threading.Event()             # a bad key fails every call: stop after the first
     errors = []
 
@@ -173,7 +190,9 @@ def _ai_pass(client, cfg, max_years, progress):
             return False
         try:
             res = client.assess(block, row, cache_key=f"jobhunt-{sig}")
-            db.save_ai(row["id"], sig, res, AI.rejected(res, max_years))
+            rejected = AI.rejected(res, max_years)
+            db.save_ai(row["id"], sig, res, rejected)
+            db.save_verdict(row["id"], client.provider, client.model, sig, res, rejected)
             return True
         except AI.AIError as e:
             errors.append(str(e))
@@ -187,7 +206,49 @@ def _ai_pass(client, cfg, max_years, progress):
         for i, ok in enumerate(ex.map(one, todo), 1):
             checked += ok
             progress.update(done=i)
+            progress.lane(key, done=i)
+    progress.lane(key, state="failed" if errors and not checked else "done", error=errors[0][:160] if errors else "")
     return checked, (errors[0] if errors else None)
+
+
+def _compare_pass(main, cfg, max_years, progress):
+    """Each extra model you selected reads the best jobs, side by side. Their verdicts are shown on the job cards and
+    never change the main score, so turning a model on or off can't reshuffle your list."""
+    picks = [c for c in llm.compare_choices() if (c["provider"], c.get("model") or "") != (main.provider, main.model)]
+    ready = llm.configured()
+    picks = [c for c in picks if c["provider"] in ready]
+    totals = {"checked": 0, "cost": 0.0, "in": 0, "out": 0}
+    if not picks:
+        return totals
+    limit, block, lock = llm.compare_limit(), profile.candidate_block(), threading.Lock()
+    progress.update(phase="Comparing models", done=0, total=0, detail=f"{len(picks)} extra model(s)")
+
+    def lane(pick):
+        client = AI.client_for(pick["provider"], pick.get("model"), cfg)
+        key, sig = f"{client.provider}/{client.model}", profile.signature(client.model)
+        todo = db.jobs_for_compare(client.provider, client.model, sig, limit)
+        progress.lane(key, label=client.label, model=client.model, done=0, total=len(todo), state="running", main=False)
+        n = 0
+        for i, row in enumerate(todo, 1):
+            try:
+                res = client.assess(block, row, cache_key=f"jobhunt-{sig}")
+            except AI.AIError as e:                      # one model failing never stops the others or the search
+                progress.lane(key, state="failed", error=str(e)[:160])
+                break
+            db.save_verdict(row["id"], client.provider, client.model, sig, res, AI.rejected(res, max_years))
+            n += 1
+            progress.lane(key, done=i)
+        else:
+            progress.lane(key, state="done")
+        with lock:
+            totals["checked"] += n
+            totals["cost"] += client.cost() or 0
+            totals["in"] += client.tokens_in
+            totals["out"] += client.tokens_out
+
+    with cf.ThreadPoolExecutor(len(picks)) as ex:
+        list(ex.map(lane, picks))
+    return totals
 
 
 def assess_one(job_id):
@@ -195,12 +256,14 @@ def assess_one(job_id):
     cfg = settings.load_config()
     client = AI.client_from_settings(cfg)
     if not client:
-        raise AI.AIError("Add your OpenAI API key on the Settings page first.")
+        raise AI.AIError(llm.NO_KEY)
     row = db.get_job(job_id)
     if not row:
         raise KeyError(job_id)
     sig = profile.signature(client.model)
     res = client.assess(profile.candidate_block(), row, cache_key=f"jobhunt-{sig}")
-    db.save_ai(job_id, sig, res, AI.rejected(res, cfg["search"]["max_years"]))
+    rejected = AI.rejected(res, min(int(profile.preferences()["max_years"]), settings.MAX_YEARS_CHOICE))
+    db.save_ai(job_id, sig, res, rejected)
+    db.save_verdict(job_id, client.provider, client.model, sig, res, rejected)
     db.add_manual_spend(client.tokens_in, client.tokens_out, client.cost() or 0)
     return db.get_job(job_id)

@@ -39,6 +39,86 @@ class LLMError(Exception):
     pass
 
 
+class Reply(tuple):
+    """(text, provider label), so every caller can unpack it, plus which model really answered."""
+    provider = model = ""
+    fell_back_from = ""
+
+    @classmethod
+    def of(cls, text, pid, model, fell_back_from=""):
+        r = cls((text, PROVIDERS[pid][0]))
+        r.provider, r.model, r.fell_back_from = pid, model, fell_back_from
+        return r
+
+
+def _pick(key):
+    """A saved {provider, model} choice, or None."""
+    p = db.get_setting(key) or {}
+    return p if p.get("provider") in PROVIDERS else None
+
+
+def chat_choice():
+    return _pick("llm_active")
+
+
+def screen_choice():
+    return _pick("llm_screen")
+
+
+def force_choice():
+    """One model for every task, if you set one. It beats every other choice and never falls back."""
+    return _pick("llm_force")
+
+
+def disabled():
+    return set(db.get_setting("llm_disabled") or [])
+
+
+def task_choice(task):
+    p = (db.get_setting("llm_tasks") or {}).get(task) or {}
+    return p if p.get("provider") in PROVIDERS else None
+
+
+def compare_choices():
+    if force_choice():
+        return []
+    return [c for c in (db.get_setting("llm_compare") or []) if c.get("provider") in PROVIDERS]
+
+
+NOT_CHAT = re.compile(r"embed|tts|whisper|transcri|speech|image|imagen|dall|moderation|guard|rerank|ocr", re.I)
+
+
+def check_chat_model(pid, model=""):
+    """Prove this is a working chat LLM: its name isn't an embedding, speech or image model, and it really answers."""
+    import openai
+    env = settings.read_env()
+    use = model or model_for(pid, env)
+    if NOT_CHAT.search(use):
+        raise LLMError(f"{use} isn't a chat model, so it can't do these tasks.")
+    try:
+        _complete(pid, [{"role": "user", "content": "Reply with the single word OK."}], 16, env, use, "test")
+    except (openai.APIError, LLMError) as e:
+        raise LLMError(f"{use} didn't answer as a chat model: {_short(e)}") from e
+    return use
+
+
+def price_for(pid, model):
+    """USD per 1M tokens (input, output). Local models are free; None means the price isn't known."""
+    if pid == "ollama":
+        return (0, 0)
+    return settings.load_config()["ai"]["prices"].get(model)
+
+
+def record(pid, model, feature, tokens_in, tokens_out, started):
+    """Log one call for the usage dashboard. Logging must never break the call itself."""
+    try:
+        price = price_for(pid, model)
+        cost = round((tokens_in * price[0] + tokens_out * price[1]) / 1_000_000, 6) if price else None
+        db.record_usage(pid, model, feature, tokens_in, tokens_out, cost, round((time.monotonic() - started) * 1000))
+    except Exception:
+        pass
+
+
 def _model_var(pid):
     return f"LLM_MODEL_{pid.upper()}"
 
@@ -82,7 +162,10 @@ def configured(env=None, check_ollama=True):
     """Providers that have what they need (a key, or a running Ollama), in preferred order."""
     env = env if env is not None else settings.read_env()
     out = []
+    off = disabled()
     for pid in order():
+        if pid in off:                       # switched off in Settings: the key stays, but nothing uses it
+            continue
         var = PROVIDERS[pid][3]
         if var and env.get(var):
             out.append(pid)
@@ -107,10 +190,11 @@ def _short(e):
     return s(e)
 
 
-def _complete(pid, messages, max_tokens, env=None, model=None):
+def _complete(pid, messages, max_tokens, env=None, model=None, feature="chat"):
     import openai
     c = client(pid, env)
     model = model or model_for(pid, env)
+    started = time.monotonic()
     kw = dict(model=model, messages=messages, max_completion_tokens=max_tokens)
     for _ in range(2):
         try:
@@ -121,6 +205,8 @@ def _complete(pid, messages, max_tokens, env=None, model=None):
                 kw["max_tokens"] = kw.pop("max_completion_tokens")
                 continue
             raise
+    u = getattr(r, "usage", None)
+    record(pid, model, feature, getattr(u, "prompt_tokens", 0) or 0, getattr(u, "completion_tokens", 0) or 0, started)
     text = (r.choices[0].message.content or "") if r.choices else ""
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()        # reasoning models (qwen, deepseek-r1)
     if not text:
@@ -158,14 +244,14 @@ def test(pid, key=None, model=None):
     used = model_for(pid, env)
     try:
         try:
-            _complete(pid, [{"role": "user", "content": "Reply with the single word OK."}], 16, env, used)
+            _complete(pid, [{"role": "user", "content": "Reply with the single word OK."}], 16, env, used, "test")
         except (openai.NotFoundError, openai.BadRequestError) as e:
             if "model" not in str(e).lower():
                 raise
             alt = _pick_model(pid, env)
             if not alt or alt == used:
                 raise
-            _complete(pid, [{"role": "user", "content": "Reply with the single word OK."}], 16, env, alt)
+            _complete(pid, [{"role": "user", "content": "Reply with the single word OK."}], 16, env, alt, "test")
             used = alt
     except openai.AuthenticationError as e:
         raise LLMError(f"{PROVIDERS[pid][0]} rejected the key.") from e
@@ -192,32 +278,105 @@ def remove(pid):
 def status():
     env = settings.read_env()
     have_ollama = ollama_models()
-    ready = configured(env, check_ollama=False) + (["ollama"] if have_ollama else [])
+    off = disabled()
+    ready = configured(env, check_ollama=False) + (["ollama"] if have_ollama and "ollama" not in off else [])
     rows = []
     for pid in order():
         label, _, default, var, free, _, page = PROVIDERS[pid]
         key = env.get(var) if var else ""
         rows.append({"id": pid, "label": label, "free": free, "key_page": page, "needs_key": bool(var),
-                     "ready": pid in ready, "key_hint": f"…{key[-4:]}" if key and len(key) > 8 else "",
+                     "ready": pid in ready, "disabled": pid in off, "usable": bool(key) or (pid == "ollama" and bool(have_ollama)),
+                     "key_hint": f"…{key[-4:]}" if key and len(key) > 8 else "",
                      "model": model_for(pid, env), "default_model": default,
                      "local_models": have_ollama if pid == "ollama" else []})
     return {"providers": rows, "active": [p for p in order() if p in ready]}
 
 
-def chat(messages, max_tokens=1200, prefer=None):
-    """Answer with the first provider that works (``prefer`` first if it's ready). Returns (text, provider label)."""
+def chat(messages, max_tokens=1200, prefer=None, model=None, feature="chat"):
+    """Answer with the chosen model. In order: one model for everything; one Coach conversation's pick; the model set
+    for this task; `prefer`; the global switcher; the provider order. If it fails the next ready provider answers and
+    the Reply says so, except with one model for everything, which never silently swaps."""
     import openai
     env = settings.read_env()
     ready = configured(env)
-    if prefer in ready:
-        ready.remove(prefer)
-        ready.insert(0, prefer)
     if not ready:
         raise LLMError(NO_KEY)
+    chosen, force = chat_choice(), force_choice()
+    task = None if (model or force) else task_choice(feature)
+    if force and force["provider"] in ready:
+        ready, first, wanted = [force["provider"]], force["provider"], force.get("model")
+    else:
+        if task and task["provider"] in ready:
+            first, wanted = task["provider"], task.get("model")
+        else:
+            first = prefer if prefer in ready else (chosen or {}).get("provider")
+            wanted = model or ((chosen or {}).get("model") if first == (chosen or {}).get("provider") else None)
+        if first in ready:
+            ready.remove(first)
+            ready.insert(0, first)
     errors = []
     for pid in ready:
+        use = (wanted if pid == first else None) or model_for(pid, env)
         try:
-            return _complete(pid, messages, max_tokens, env), PROVIDERS[pid][0]
+            text = _complete(pid, messages, max_tokens, env, use, feature)
+            return Reply.of(text, pid, use, first if first and pid != first else "")
         except (openai.APIError, LLMError) as e:              # bad key, quota, outage: try the next provider
             errors.append(f"{PROVIDERS[pid][0]}: {_short(e)}")
     raise LLMError("No AI provider answered. " + " | ".join(errors)[:600])
+
+
+_pings = {}
+PING_SECONDS = 60
+
+
+def ping(pid, fresh=False):
+    """Is this provider up, and how fast? Lists models, so it costs no tokens and saves nothing."""
+    hit = _pings.get(pid)
+    if hit and not fresh and time.monotonic() - hit[0] < PING_SECONDS:
+        return hit[1]
+    started = time.monotonic()
+    try:
+        if pid == "ollama":
+            with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=2) as r:
+                r.read()
+        else:
+            client(pid).with_options(timeout=6, max_retries=0).models.list()
+        out = {"ok": True, "ms": round((time.monotonic() - started) * 1000), "error": ""}
+    except Exception as e:
+        out = {"ok": False, "ms": None, "error": _short(e)[:160]}
+    _pings[pid] = (time.monotonic(), out)
+    return out
+
+
+def live_status(fresh=False):
+    """Everything the switcher shows. Pings run here, not in the browser, because the page may only call this app."""
+    import concurrent.futures as cf
+    base = status()
+    ready = [p for p in base["providers"] if p["ready"]]
+    with cf.ThreadPoolExecutor(max(1, len(ready))) as ex:
+        results = dict(zip([p["id"] for p in ready], ex.map(lambda p: ping(p["id"], fresh), ready)))
+    for p in base["providers"]:
+        p.update(results.get(p["id"], {"ok": False, "ms": None, "error": ""}))
+    env = settings.read_env()
+
+    def show(choice):
+        if choice and choice["provider"] in results:
+            return {"provider": choice["provider"], "model": choice.get("model") or model_for(choice["provider"], env)}
+        return None
+
+    first = next((p["id"] for p in ready), None)
+    first_screen = next((p["id"] for p in ready if p["id"] != "ollama"), None)
+    force = show(force_choice())
+    base["force"] = force
+    base["tasks"] = db.get_setting("llm_tasks") or {}
+    base["chat"] = force or show(chat_choice()) or ({"provider": first, "model": model_for(first, env)} if first else None)
+    base["screening"] = force or show(screen_choice()) or (
+        {"provider": first_screen, "model": model_for(first_screen, env)} if first_screen else None)
+    base["compare"] = compare_choices()
+    base["compare_jobs"] = compare_limit()
+    return base
+
+
+def compare_limit():
+    n = db.get_setting("llm_compare_jobs")
+    return int(n) if n else int(settings.load_config()["ai"]["compare_jobs"])

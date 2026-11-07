@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 
 from . import filters
 from .models import Job
+from .salary import from_board
 from .net import fetch_json
 
 
@@ -272,7 +273,10 @@ def adzuna(ctx):
         for j in d.get("results", []):
             out.append(Job("Adzuna", (j.get("company") or {}).get("display_name", ""), clean_text(j.get("title")),
                            (j.get("location") or {}).get("display_name", "") + ", India", j.get("redirect_url", ""),
-                           parse_time(j.get("created")), clean_text(j.get("description"))))
+                           parse_time(j.get("created")), clean_text(j.get("description")),
+                           # Adzuna fills these with its own guess when salary_is_predicted is "1": not a real figure
+                           salary=None if str(j.get("salary_is_predicted")) == "1" else
+                           from_board(j.get("salary_min"), j.get("salary_max"))))
     return out
 
 
@@ -296,7 +300,9 @@ def jsearch(ctx):
             out.append(Job("JSearch", j.get("employer_name", ""), j.get("job_title", ""), loc,
                            j.get("job_apply_link") or j.get("job_google_link", ""),
                            parse_time(j.get("job_posted_at_datetime_utc")),
-                           clean_text((j.get("job_description") or "") + " " + quals)))
+                           clean_text((j.get("job_description") or "") + " " + quals),
+                           salary=from_board(j.get("job_min_salary"), j.get("job_max_salary"),
+                                             j.get("job_salary_currency"), j.get("job_salary_period"))))
     return out
 
 

@@ -20,16 +20,19 @@ def _running(port):
 
 
 def serve(port, open_browser=True):
+    from . import vault
     url = f"http://127.0.0.1:{port}/"
     if _running(port):
         print(f"JobQuest.AI is already running: {url}")
         if open_browser:
-            webbrowser.open(url)
+            webbrowser.open(f"{url}?k={vault.session() or ''}")
         return
     import uvicorn
     from . import api
     cfg = settings.load_config()
     api.app.state.allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+    api.app.state.token = vault.new_session()
+    url += f"?k={api.app.state.token}"
     from .desktop import _daily_backup
     _daily_backup()
     api.maybe_auto_refresh(cfg["server"].get("auto_refresh_hours", 12))
@@ -77,7 +80,8 @@ def main(argv=None):
         try:
             from . import notify
             notify.target_reminder()               # the 09:00 / 21:00 task doubles as the daily-target nudge
-            from . import mail
+            from . import cloud, mail
+            cloud.sync_if_due()
             if mail.connected():
                 n = len(mail.sync())
                 if n:

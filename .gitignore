@@ -18,3 +18,9 @@ venv/
 *.zip
 resumes/
 backups/
+# secrets and logs
+secrets.dat
+session.dat
+client_secret*.json
+token*.json
+*.log

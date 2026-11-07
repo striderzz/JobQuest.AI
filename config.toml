@@ -12,8 +12,10 @@ model = "gpt-6-luna"          # OpenAI's lowest-cost current text model; any cha
 reasoning_effort = "low"      # none | minimal | low | medium | high; dropped automatically if the model rejects it
 max_jobs_per_refresh = 150    # cap on AI job checks per refresh (each posting is checked once, then cached)
 concurrency = 4
-# USD per 1M tokens (input, output), used only to show running cost. Update if OpenAI changes prices.
-prices = { "gpt-6-luna" = [0.10, 0.50], "gpt-6.1-sol" = [2.0, 10.0], "gpt-6-astra" = [10.0, 50.0] }
+compare_jobs = 30             # each extra model in a comparison reads this many of the best jobs
+# USD per 1M tokens (input, output), used only to show running cost. List prices: free tiers cost you less, and prices
+# change, so correct them here. A model that isn't listed shows "price unknown" rather than $0.
+prices = { "gpt-6-luna" = [0.10, 0.50], "gpt-6.1-sol" = [2.0, 10.0], "gpt-6-astra" = [10.0, 50.0], "gemini-2.5-flash" = [0.30, 2.50], "llama-3.3-70b-versatile" = [0.59, 0.79], "deepseek-chat" = [0.28, 0.42], "grok-4-fast" = [0.20, 0.50], "mistral-small-latest" = [0.10, 0.30] }
 
 [server]
 port = 8000

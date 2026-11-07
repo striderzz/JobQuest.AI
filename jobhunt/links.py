@@ -26,6 +26,12 @@ def company_directory(boards):
     return out
 
 
+def company_links(name):
+    """Searches, not guessed addresses: a made-up careers URL would often be wrong, and a search finds the real one."""
+    return {"careers": f"https://www.google.com/search?q={quote_plus(name + ' careers India')}",
+            "website": f"https://www.google.com/search?q={quote_plus(name + ' official website')}"}
+
+
 def search_links(roles):
     out = []
     for role in roles:

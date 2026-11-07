@@ -325,7 +325,7 @@ class LLMProviders(unittest.TestCase):
         self.assertEqual(self.c.get("/api/state").json()["ai"]["active"][:2], ["groq", "gemini"])
         calls = []
 
-        def fake(pid, messages, max_tokens, env=None, model=None):
+        def fake(pid, messages, max_tokens, env=None, model=None, feature="chat"):
             calls.append(pid)
             if pid == "groq":
                 raise self.llm.LLMError("quota")
@@ -537,7 +537,7 @@ class Mail(unittest.TestCase):
     def test_cold_email_counts_as_application(self):
         from jobhunt import stats
         c = TestClient(api.app)
-        db.set_setting("outreach_contacts", [{"id": "c1", "name": "Mira", "email": "mira@countco.example", "company": "CountCo",
+        db.save_contacts([{"id": "c1", "name": "Mira", "email": "mira@countco.example", "company": "CountCo",
                                               "job_role": "ML Engineer"}, {"id": "c2", "name": "No Company", "email": "x@y.example"}])
         before = stats.today_count()
         r = c.post("/api/outreach/mark-sent", json={"contact_id": "c1"})

@@ -12,17 +12,33 @@ const store = {
 const narrow = () => window.matchMedia("(max-width: 991.98px)").matches;
 const bi = (name, extra = "") => `<i class="bi bi-${name} ${extra}" aria-hidden="true"></i>`;
 
-const CITIES = ["Bengaluru", "Hyderabad", "Pune", "Chennai", "Mumbai", "Delhi NCR", "Kolkata", "Ahmedabad", "Kochi",
-  "Thiruvananthapuram", "Jaipur", "Chandigarh", "Coimbatore", "Indore"];
+// the top 30 tech cities: [name, how it's written in postings]
+const TECH_CITIES = [["Bengaluru", "bengaluru|bangalore"], ["Hyderabad", "hyderabad|secunderabad"], ["Pune", "\\bpune\\b"], ["Chennai", "chennai"],
+  ["Mumbai", "mumbai|thane"], ["Delhi NCR", "delhi|\\bncr\\b|gurugram|gurgaon|noida|faridabad|ghaziabad"], ["Gurugram", "gurugram|gurgaon"], ["Noida", "noida"],
+  ["Kolkata", "kolkata"], ["Ahmedabad", "ahmedabad|gandhinagar"], ["Kochi", "kochi|cochin"], ["Thiruvananthapuram", "trivandrum|thiruvananthapuram"],
+  ["Jaipur", "jaipur"], ["Chandigarh", "chandigarh|mohali"], ["Coimbatore", "coimbatore"], ["Indore", "indore"], ["Mysuru", "mysuru|mysore"],
+  ["Bhubaneswar", "bhubaneswar"], ["Nagpur", "nagpur"], ["Vadodara", "vadodara"], ["Visakhapatnam", "visakhapatnam|vizag"], ["Lucknow", "lucknow"],
+  ["Surat", "\\bsurat\\b"], ["Mangaluru", "mangaluru|mangalore"], ["Nashik", "nashik|nasik"], ["Bhopal", "bhopal"], ["Madurai", "madurai"],
+  ["Vijayawada", "vijayawada"], ["Dehradun", "dehradun"], ["Goa", "\\bgoa\\b|panaji"]];
+const CITIES = TECH_CITIES.map(c => c[0]);
+const CITY_RX = Object.fromEntries(TECH_CITIES.map(([n, rx]) => [n, new RegExp(rx, "i")]));
+const inCity = (j, c) => (CITY_RX[c] || new RegExp(`\\b${c}\\b`, "i")).test(`${j.location || ""} ${j.cities.join(" ")}`);
 const STATUS = { saved: "Saved", applied: "Applied", screening: "Screening call", oa: "OA / Test", interviewing: "Interview", offer: "Offer", rejected: "Rejected", ghosted: "Ghosted", withdrawn: "Withdrawn", hidden: "Hidden" };
 const TRACK = ["saved", "applied", "screening", "oa", "interviewing", "offer", "rejected", "ghosted", "withdrawn"];
 const SORTS = [["best", "Best match"], ["newest", "Newest"], ["location", "Location (A–Z)"], ["company", "Company (A–Z)"],
-  ["years", "Fewest years required"], ["added", "Recently added"]];
+  ["years", "Fewest years required"], ["added", "Recently added"], ["salary", "Highest salary"], ["agree", "Models agree most"]];
+const CATEGORIES = [["intern", "Internship"], ["graduate", "Graduate"], ["early", "Early career"]];
+const YOE = [["all", "Any experience"], ["0", "No experience"], ["1", "Up to 1 year"], ["2", "Up to 2 years"], ["3", "Up to 3 years"], ["5", "Up to 5 years"]];
+const categoryOf = j => j.level === "Intern" ? "intern" : j.level === "New grad" ? "graduate" : "early";
+// stated years decide; internships and graduate roles count as no experience even if the posting gives no number
+const fitsYears = (j, max) => j.years != null ? j.years <= max : categoryOf(j) !== "early";
+const modelSpread = j => { const s = (j.models || []).map(m => m.score).filter(x => x != null); return s.length > 1 ? Math.max(...s) - Math.min(...s) : null; };
 
+const PAGE_TITLES = { jobs: "Jobs", outreach: "Cold email", tracker: "Tracker", dashboard: "Dashboard", coach: "Coach", profile: "Profile", settings: "Settings" };
 const S = {
   picked: new Set(),
   state: null, jobs: [], polling: null, sel: null, details: {},
-  f: Object.assign({ q: "", role: "all", type: "all", tier: "all", days: 0, city: "", sort: "best", newOnly: false, contact: false, showAll: false },
+  f: Object.assign({ q: "", role: "all", type: "all", yoe: "all", model: "all", tier: "all", days: 0, city: "", sort: "best", newOnly: false, contact: false, showAll: false },
     store.get("filters3", {})),
   t: Object.assign({ view: "table", sort: "applied", dir: -1, q: "", status: "all" }, store.get("tracker", {})),
 };
@@ -140,8 +156,10 @@ function setSkin(k) {
 
 function renderShell() {
   const tracked = S.jobs.filter(j => TRACK.includes(j.status)).length;
-  const tabs = [["jobs", "Jobs", "briefcase"], ["tracker", "Tracker", "kanban"], ["dashboard", "Dashboard", "bar-chart-line"], ["outreach", "Cold email", "envelope-at"], ["coach", "Coach", "chat-dots"], ["profile", "Profile", "person-badge"], ["settings", "Settings", "gear"]];
-  $("#tabs").innerHTML = tabs.map(([v, label, ic]) => `<li class="nav-item"><a class="nav-link d-flex align-items-center gap-2" href="#/${v}" data-view="${v}">${bi(ic)}${label}${v === "tracker" && tracked ? `<span class="badge rounded-pill tag-line">${tracked}</span>` : ""}</a></li>`).join("");
+  const contacts = S.jobs.filter(j => j.active && j.contacts.length && (!j.status || j.status === "saved")).length;
+  const badge = { tracker: tracked, outreach: contacts };
+  const tabs = [["jobs", "Jobs", "briefcase"], ["outreach", "Cold email", "envelope-at"], ["tracker", "Tracker", "kanban"], ["dashboard", "Dashboard", "bar-chart-line"], ["coach", "Coach", "chat-dots"], ["profile", "Profile", "person-badge"], ["settings", "Settings", "gear"]];
+  $("#tabs").innerHTML = tabs.map(([v, label, ic]) => `<li class="nav-item"><a class="nav-link d-flex align-items-center gap-2" href="#/${v}" data-view="${v}" title="${label}">${bi(ic)}<span class="nav-text">${label}</span>${badge[v] ? `<span class="badge rounded-pill tag-line">${badge[v]}</span>` : ""}</a></li>`).join("");
   const lr = S.state.last_run;
   $("#last-run").textContent = lr ? `Updated ${ago(lr.finished)}` : "Not searched yet";
   const tg = S.state.target || { count: 0, target: 10 }, frac = Math.min(1, tg.count / tg.target), C = 2 * Math.PI * 9;
@@ -156,6 +174,7 @@ function renderShell() {
 function showProgress(p) {
   const box = $("#progress"), btn = $("#refresh-btn");
   if (!p.running) { box.classList.add("d-none"); btn.disabled = false; btn.innerHTML = findLabel(); return; }
+  drawLanes(p);
   box.classList.remove("d-none");
   btn.disabled = true; btn.innerHTML = `${bi("arrow-repeat", "spin")} Searching…`;
   $("#progress-label").textContent = p.phase || "Working";
@@ -189,8 +208,8 @@ async function loadAll() {
   loadNames();
   const [st, js] = await Promise.all([api("/api/state"), api("/api/jobs")]);
   S.state = st; S.jobs = js.jobs; S.details = {};
-  S.lastRunId = st.last_run ? st.last_run.id : null;
-  renderShell(); route();
+  S.lastRunId = st.last_run ? st.last_run.id : null; S.lastPull = st.cloud_pulled;
+  renderShell(); route(); loadSwitcher();
   if (st.refresh.running) startPolling();
 }
 
@@ -201,6 +220,7 @@ setInterval(async () => {
     const st = await api("/api/state");
     if (st.refresh.running) { startPolling(); return; }
     const id = st.last_run ? st.last_run.id : null;
+    if (st.cloud_pulled !== S.lastPull) { await loadAll(); toast("Synced from your other PC.", 5000); return; }
     if (id !== S.lastRunId) {
       await loadAll();
       const n = st.last_run ? st.last_run.new : 0;
@@ -222,7 +242,7 @@ function startPolling() {
     if (p.error) toast(`Search failed: ${p.error}`, 7000);
     else if (p.result) {
       const r = p.result;
-      toast(`${r.new} new job${r.new === 1 ? "" : "s"} · ${r.kept} matching${r.ai_checked ? ` · AI checked ${r.ai_checked}` : ""}${r.ai_error ? " · AI: " + r.ai_error : ""}`, 6000);
+      toast(`${r.new} new job${r.new === 1 ? "" : "s"} · ${r.kept} matching${r.ai_checked ? ` · AI checked ${r.ai_checked}` : ""}${r.ai_compared ? ` · ${r.ai_compared} model comparisons` : ""}${r.ai_error ? " · AI: " + r.ai_error : ""}`, 6000);
       if (S.coldAfter) {
         S.coldAfter = false;
         try { const o = await api("/api/outreach/from-postings", { method: "POST" }); toast(`${o.added} new hiring contact${o.added === 1 ? "" : "s"} from postings`, 6000); location.hash = "#/outreach"; }
@@ -247,11 +267,13 @@ const currentView = () => (location.hash.replace(/^#\//, "") || "jobs").split("?
 function route() {
   if (!S.state) return;                           // a hash change can arrive before the first load finishes
   const view = currentView();
+  $("#page-title").textContent = PAGE_TITLES[view] || "Jobs";
   (S.charts || []).forEach(c => c.destroy()); S.charts = [];
   $$("#tabs .nav-link").forEach(a => a.classList.toggle("active", a.dataset.view === view));
   ({ jobs: renderJobs, tracker: renderTracker, dashboard: renderDashboard, outreach: renderOutreach, coach: renderCoach, profile: renderProfile, settings: renderSettings }[view] || renderJobs)();
   const nav = bootstrap.Collapse.getInstance($("#nav"));
   if (nav) nav.hide();
+  drawSwitchers();
 }
 window.addEventListener("hashchange", () => { hideSheet(); route(); window.scrollTo({ top: 0 }); });
 
@@ -273,13 +295,15 @@ function visible(j) {
   const f = S.f;
   // applied (or further along) jobs live in the Tracker, not in the list of jobs still to apply to
   if (!f.showAll && (!j.active || j.status === "hidden" || j.ai_rejected || (j.status && j.status !== "saved"))) return false;
-  if (f.role !== "all" && j.kind !== f.role) return false;
-  if (f.type === "intern" && j.level !== "Intern") return false;
+  if (f.role !== "all" && j.family !== f.role) return false;
+  if (["intern", "graduate", "early"].includes(f.type) && categoryOf(j) !== f.type) return false;
   if (f.type === "fulltime" && j.level === "Intern") return false;
+  if (f.yoe !== "all" && !fitsYears(j, Number(f.yoe))) return false;
+  if (f.model !== "all" && !(j.models || []).some(m => m.model === f.model)) return false;
   if (f.tier !== "all" && j.tier !== f.tier) return false;
   if (f.days && (j.age_days == null || j.age_days > f.days)) return false;
   if (f.city === "Remote" && !j.remote) return false;
-  if (f.city && f.city !== "Remote" && !j.cities.includes(f.city)) return false;
+  if (f.city && f.city !== "Remote" && !inCity(j, f.city)) return false;
   if (f.newOnly && !j.is_new) return false;
   if (f.contact && !j.contacts.length) return false;
   if (f.q) {
@@ -301,6 +325,8 @@ function sortJobs(list) {
     company: (a, b) => a.company.localeCompare(b.company) || byScore(a, b),
     years: (a, b) => (a.years ?? 9) - (b.years ?? 9) || byScore(a, b),
     added: (a, b) => (b.first_seen || "").localeCompare(a.first_seen || "") || byScore(a, b),
+    salary: (a, b) => (b.salary_max || 0) - (a.salary_max || 0) || byScore(a, b),
+    agree: (a, b) => (modelSpread(a) ?? 999) - (modelSpread(b) ?? 999) || byScore(a, b),
   }[S.f.sort] || byScore;
   return list.slice().sort(cmp);
 }
@@ -308,6 +334,7 @@ function sortJobs(list) {
 function jobCard(j) {
   const st = j.status;
   const years = j.years == null ? "" : `<span class="badge rounded-pill ${j.years >= 2 ? "tag-warn" : "tag"}">${yearsText(j.years)}</span>`;
+  const spread = modelSpread(j), mail = j.contacts.find(c => c.email);
   return `<div class="card job-card mb-2 ${j.id === S.sel ? "active" : ""} ${st === "hidden" || j.ai_rejected ? "dim" : ""}" data-id="${j.id}" data-action="select" tabindex="0" role="button" aria-label="${esc(j.title)} at ${esc(j.company)}">
     <div class="card-body d-flex gap-3 p-3">
       ${avatar(j.company)}
@@ -317,7 +344,8 @@ function jobCard(j) {
         <div class="d-flex flex-wrap gap-1 mt-2">
           ${j.is_new ? '<span class="badge rounded-pill tag-ink">NEW</span>' : ""}
           <span class="badge rounded-pill tag">${kindText(j.kind)}</span>
-          ${j.level === "Intern" ? '<span class="badge rounded-pill tag-line">Internship</span>' : j.level === "New grad" ? '<span class="badge rounded-pill tag-line">New grad</span>' : ""}
+          ${j.level === "Intern" ? '<span class="badge rounded-pill tag-line">Internship</span>' : j.level === "New grad" ? '<span class="badge rounded-pill tag-line">Graduate</span>' : ""}
+          ${j.salary ? `<span class="badge rounded-pill tag-line">${bi("cash")} ${esc(j.salary)}</span>` : ""}
           ${j.tier && j.tier !== "mid" ? `<span class="badge rounded-pill tier-${j.tier}">${esc(TIERS[j.tier].split(" (")[0])}</span>` : ""}
           ${years}
           ${j.remote ? `<span class="badge rounded-pill tag-line">${bi("house")} Remote</span>` : ""}
@@ -325,6 +353,8 @@ function jobCard(j) {
           ${st && st !== "hidden" ? `<span class="badge rounded-pill tag-ink">${bi("check2")} ${esc(STATUS[st])}</span>` : ""}
           ${j.ai_rejected ? '<span class="badge rounded-pill tag-bad">AI: breaks your rules</span>' : ""}
         </div>
+        ${(j.models || []).length > 1 ? `<div class="model-chips">${j.models.map(m => `<span class="model-chip" title="${esc(m.provider)} · ${esc(m.model)}">${esc(m.model.split(/[:/]/).pop().slice(0, 18))} <b>${m.score ?? "–"}</b></span>`).join("")}${spread >= 20 ? `<span class="model-chip split">${bi("exclamation-triangle")} models disagree</span>` : ""}</div>` : ""}
+        ${mail ? `<button class="btn btn-sm btn-link p-0 mt-1 card-mail" data-action="cold-email" data-id="${j.id}" data-email="${esc(mail.email)}" data-name="${esc(mail.name || "")}" data-role="${esc(mail.role || "")}">${bi("envelope")} Email recruiter</button>` : ""}
       </div>
       <div class="d-flex flex-column align-items-center gap-1">${ring(j.score, verdictOf(j), 50)}<span class="age">${postedShort(j.age_days)}</span></div>
     </div></div>`;
@@ -341,8 +371,13 @@ function renderJobs() {
   }
   const f = S.f;
   const live = S.jobs.filter(j => j.active && !j.ai_rejected && (!j.status || j.status === "saved"));
-  const cities = [...new Set(S.jobs.filter(j => j.active).flatMap(j => j.cities))].sort();
   const nRejected = S.jobs.filter(j => j.active && j.ai_rejected).length;
+  const models = [...new Set(S.jobs.flatMap(j => (j.models || []).map(m => m.model)))].sort();
+  const counts = {}; live.forEach(j => { counts[j.family] = (counts[j.family] || 0) + 1; });
+  const families = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  if (f.role !== "all" && !counts[f.role]) f.role = "all";       // also clears the old SDE / ML values
+  const pay = live.filter(j => j.salary_max && j.salary_currency === "INR").map(j => ((j.salary_min || j.salary_max) + j.salary_max) / 2 / 100000).sort((a, b) => a - b);
+  const medianPay = pay.length ? (pay.length % 2 ? pay[(pay.length - 1) / 2] : (pay[pay.length / 2 - 1] + pay[pay.length / 2]) / 2) : null;
   const opt = (val, label, cur) => `<option value="${esc(val)}" ${String(val) === String(cur) ? "selected" : ""}>${esc(label)}</option>`;
   const sw = (key, label, ic = "") => `<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" role="switch" id="f-${key}" data-f="${key}" ${f[key] ? "checked" : ""}><label class="form-check-label fw-medium" for="f-${key}">${ic ? bi(ic) + " " : ""}${label}</label></div>`;
   const stat = (n, label) => `<div class="card stat lift px-3 py-2"><div class="num">${n}</div><div class="small text-body-secondary fw-medium">${label}</div></div>`;
@@ -352,22 +387,25 @@ function renderJobs() {
   app.innerHTML = `${banners()}
     <div class="hero d-flex flex-wrap align-items-end justify-content-between gap-3 my-4 rise">
       <div><h1 class="mb-1">Jobs picked <span class="text-accent">for you</span></h1>
-        <div class="text-body-secondary">India only · entry level, under 3 years · ranked against your resume</div></div>
-      <div class="d-flex flex-wrap gap-2">${stat(live.length, "matching")}${stat(live.filter(j => j.is_new).length, "new today")}${stat(live.filter(j => j.ai && j.ai.verdict === "strong").length, "strong fits")}${stat(S.jobs.filter(j => j.status === "applied").length, "applied")}</div>
+        <div class="text-body-secondary">India only · up to ${st.profile.preferences.max_years} year${st.profile.preferences.max_years === 1 ? "" : "s"} of experience · ranked against your resume</div></div>
+      <div class="d-flex flex-wrap gap-2">${stat(live.length, "matching")}${stat(live.filter(j => j.is_new).length, "new today")}${stat(live.filter(j => j.ai && j.ai.verdict === "strong").length, "strong fits")}${medianPay != null ? stat(`${medianPay.toFixed(1)} LPA`, `median of ${pay.length} shown`) : stat(S.jobs.filter(j => j.status === "applied").length, "applied")}</div>
     </div>
     <div class="card mb-3 rise"><div class="card-body">
       <div class="input-group input-group-lg mb-3"><span class="input-group-text bg-transparent">${bi("search")}</span>
         <input id="q" type="search" class="form-control" placeholder="Search title, company or skill… e.g. python, Bengaluru, Razorpay" value="${esc(f.q)}" aria-label="Search"></div>
-      <div class="row g-2 align-items-end">
-        <div class="col-6 col-md-4 col-xl-2"><label class="form-label small fw-semibold text-body-secondary mb-1">Sort by</label><select class="form-select" data-f="sort">${SORTS.map(([v, l]) => opt(v, l, f.sort)).join("")}</select></div>
-        <div class="col-6 col-md-4 col-xl-2"><label class="form-label small fw-semibold text-body-secondary mb-1">Role</label><select class="form-select" data-f="role">${opt("all", "All roles", f.role)}${opt("SDE", "SDE", f.role)}${opt("ML", "ML / AI", f.role)}</select></div>
-        <div class="col-6 col-md-4 col-xl-2"><label class="form-label small fw-semibold text-body-secondary mb-1">Type</label><select class="form-select" data-f="type">${opt("all", "All types", f.type)}${opt("fulltime", "Full-time", f.type)}${opt("intern", "Internships", f.type)}</select></div>
-        <div class="col-6 col-md-4 col-xl-2"><label class="form-label small fw-semibold text-body-secondary mb-1">Company</label><select class="form-select" data-f="tier">${opt("all", "All companies", f.tier)}${Object.entries(TIERS).map(([k, v]) => opt(k, v, f.tier)).join("")}</select></div>
-        <div class="col-6 col-md-4 col-xl-2"><label class="form-label small fw-semibold text-body-secondary mb-1">Posted</label><select class="form-select" data-f="days">${opt(0, "Any time", f.days)}${opt(1, "Last 24 hours", f.days)}${opt(3, "Last 3 days", f.days)}${opt(7, "Last 7 days", f.days)}</select></div>
-        <div class="col-12 col-md-4 col-xl-2"><label class="form-label small fw-semibold text-body-secondary mb-1">City</label><select class="form-select" data-f="city">${opt("", "All of India", f.city)}${opt("Remote", "Remote (India)", f.city)}${cities.map(c => opt(c, c, f.city)).join("")}</select></div>
+      <div class="filter-grid">
+        <div><label class="form-label small fw-semibold text-body-secondary mb-1">Experience</label><select class="form-select" data-f="yoe">${YOE.map(([v, l]) => opt(v, l, f.yoe)).join("")}</select></div>
+        <div><label class="form-label small fw-semibold text-body-secondary mb-1">Sort by</label><select class="form-select" data-f="sort">${SORTS.map(([v, l]) => opt(v, l, f.sort)).join("")}</select></div>
+        <div><label class="form-label small fw-semibold text-body-secondary mb-1">Role</label><select class="form-select" data-f="role">${opt("all", "All roles", f.role)}${families.map(([name, n]) => opt(name, `${name} (${n})`, f.role)).join("")}</select></div>
+        <div><label class="form-label small fw-semibold text-body-secondary mb-1">Category</label><select class="form-select" data-f="type">${opt("all", "All categories", f.type)}${CATEGORIES.map(([v, l]) => opt(v, l, f.type)).join("")}${opt("fulltime", "Any full-time", f.type)}</select></div>
+        <div><label class="form-label small fw-semibold text-body-secondary mb-1">Company</label><select class="form-select" data-f="tier">${opt("all", "All companies", f.tier)}${Object.entries(TIERS).map(([k, v]) => opt(k, v, f.tier)).join("")}</select></div>
+        <div><label class="form-label small fw-semibold text-body-secondary mb-1">Posted</label><select class="form-select" data-f="days">${opt(0, "Any time", f.days)}${opt(1, "Last 24 hours", f.days)}${opt(3, "Last 3 days", f.days)}${opt(7, "Last 7 days", f.days)}</select></div>
+        <div><label class="form-label small fw-semibold text-body-secondary mb-1">City</label><select class="form-select" data-f="city">${opt("", "All of India", f.city)}${opt("Remote", "Remote (India)", f.city)}${CITIES.map(c => opt(c, `${c} (${live.filter(j => inCity(j, c)).length})`, f.city)).join("")}</select></div>
+        ${models.length ? `<div><label class="form-label small fw-semibold text-body-secondary mb-1">Checked by</label><select class="form-select" data-f="model">${opt("all", "Any model", f.model)}${models.map(m => opt(m, m, f.model)).join("")}</select></div>` : ""}
       </div>
-      <div class="d-flex flex-wrap align-items-center gap-3 mt-3">${sw("newOnly", "New today")}${sw("contact", "Has HR contact", "envelope")}${sw("showAll", `Show applied, removed &amp; AI-rejected${nRejected ? ` (${nRejected})` : ""}`)}
-        <span class="ms-auto d-flex flex-wrap gap-2">${quick("type", "intern", `${bi("mortarboard")} Internships`, S.jobs.filter(j => j.active && j.level === "Intern" && !["hidden", ...TRACK].includes(j.status)).length)}
+      <div class="d-flex flex-wrap align-items-center gap-3 mt-3"><span data-jobmodels></span>${sw("newOnly", "New today")}${sw("contact", "Has HR contact", "envelope")}${sw("showAll", `Show applied, removed &amp; AI-rejected${nRejected ? ` (${nRejected})` : ""}`)}
+        <span class="ms-auto d-flex flex-wrap gap-2">${quick("yoe", "0", `${bi("stars")} No experience`, live.filter(j => fitsYears(j, 0)).length)}
+          ${quick("type", "intern", `${bi("mortarboard")} Internships`, live.filter(j => categoryOf(j) === "intern").length)}${quick("type", "graduate", "Graduate", live.filter(j => categoryOf(j) === "graduate").length)}${quick("type", "early", "Early career", live.filter(j => categoryOf(j) === "early").length)}
           ${Object.entries(TIERS).filter(([k]) => k !== "mid").map(([k, v]) => quick("tier", k, v.split(" (")[0], S.jobs.filter(j => j.active && j.tier === k && !["hidden", ...TRACK].includes(j.status)).length)).join("")}</span>
       </div>
     </div></div>
@@ -447,13 +485,15 @@ function detailHTML(j) {
     <div class="sec"><div class="sec-title">${bi("stars")} ${ai ? "AI match analysis" : "Keyword match"}</div>
       <div class="match-box p-3 d-flex flex-wrap gap-4 align-items-center">${ring(j.score, v, 100, true)}
         <div class="flex-grow-1 minw-14"><div class="fs-5 fw-bold text-capitalize">${ai ? esc(ai.verdict) + " fit" : "Keyword score"}</div>
-          <div class="small text-body-secondary">${ai ? `AI ${ai.fit_score}/100 · keywords ${Math.round(j.keyword_score || 0)}/100` : "Add an OpenAI key in Settings for an AI verdict"}</div>
+          <div class="small text-body-secondary">${ai ? `AI ${ai.fit_score}/100 · keywords ${Math.round(j.keyword_score || 0)}/100` : "Add an AI key in Settings for an AI verdict"}</div>
           <ul class="mt-2 mb-0">${reasons.map(r => `<li>${esc(r)}</li>`).join("")}</ul></div>
       </div>
-      ${j.ai_rejected ? `<div class="alert alert-danger mt-3 mb-0">The AI thinks this one breaks your rules (3+ years, not entry level, or not in India).</div>` : ""}
+      ${(j.models || []).length > 1 ? `<div class="vstack gap-1 mt-3">${j.models.map(m => `<div class="model-row"><b>${m.score ?? "–"}</b><span class="fw-semibold">${esc(m.model)}</span><span class="small text-body-secondary text-truncate">${esc((m.reasons || [])[0] || "")}</span></div>`).join("")}</div>` : ""}
+      ${j.ai_rejected ? `<div class="alert alert-danger mt-3 mb-0">The AI thinks this one breaks your rules: too many years, not entry level, or not in India.</div>` : ""}
       ${j.ai_error ? `<div class="alert alert-warning mt-3 mb-0">Last AI check failed: ${esc(j.ai_error)}</div>` : ""}
       ${S.state.ai.configured ? `<button class="btn btn-sm btn-outline-secondary mt-3" data-action="assess" data-id="${j.id}">${bi("stars")} ${ai ? "Ask AI again" : "Ask AI to check this job"}</button>` : ""}
       <button class="btn btn-sm btn-outline-secondary mt-3" data-action="cover-letter" data-id="${j.id}">${bi("envelope-paper")} Cover letter</button>
+      <button class="btn btn-sm btn-outline-secondary mt-3" data-act="prep" data-id="${j.id}">${bi("mic")} Interview prep</button>
     </div>
 
     ${j.matched.length || (missing && missing.length) ? `<div class="sec"><div class="sec-title">${bi("lightning")} Skills</div>
@@ -463,6 +503,7 @@ function detailHTML(j) {
     <div class="sec"><div class="sec-title">${bi("info-circle")} At a glance</div><div class="row g-2">
       <div class="col-6 col-xl-3"><div class="fact"><small>Experience</small><b>${yearsText(j.years)}</b></div></div>
       <div class="col-6 col-xl-3"><div class="fact"><small>Role</small><b>${kindText(j.kind)} · ${esc(j.level)}</b></div></div>
+      ${j.salary ? `<div class="col-6 col-xl-3"><div class="fact"><small>Salary${j.salary_src === "you" ? " (yours)" : " (in the posting)"}</small><b>${esc(j.salary)}</b></div></div>` : ""}
       ${ai && ai.work_mode && ai.work_mode !== "unknown" ? `<div class="col-6 col-xl-3"><div class="fact"><small>Work mode</small><b class="text-capitalize">${esc(ai.work_mode)}</b></div></div>` : ""}
       ${resumeToSend ? `<div class="col-6 col-xl-3"><div class="fact"><small>Send resume</small><b>${esc(resumeToSend)}</b></div></div>` : ""}
     </div>
@@ -585,7 +626,8 @@ function renderTracker() {
         <button class="btn btn-sm btn-ink" data-bs-toggle="collapse" data-bs-target="#add-app">${bi("plus-lg")} Add</button>
         <label class="btn btn-sm btn-outline-secondary mb-0" for="import-file">${bi("file-earmark-spreadsheet")} Import Excel / CSV</label>
         <input type="file" id="import-file" class="d-none" accept=".xlsx,.csv">
-        <button class="btn btn-sm btn-outline-secondary" data-action="export-csv">${bi("filetype-csv")} Export CSV</button>
+        <a class="btn btn-sm btn-outline-secondary" href="/api/tracker/export.xlsx">${bi("file-earmark-excel")} Export Excel</a>
+        <button class="btn btn-sm btn-outline-secondary" data-action="export-csv">${bi("filetype-csv")} CSV</button>
         <button class="btn btn-sm btn-outline-secondary" data-action="cleanup" title="Fix typos and short forms in company and role names">${bi("magic")} Clean up</button>
         ${S.state.mail && S.state.mail.connected ? `<button class="btn btn-sm ${S.state.mail.pending ? "btn-ink" : "btn-outline-secondary"}" data-action="mail-open">${bi("envelope-check")} Email updates${S.state.mail.pending ? ` <span class="badge text-bg-light">${S.state.mail.pending}</span>` : ""}</button>` : ""}
         <button class="btn btn-sm btn-outline-secondary" data-action="backup-now">${bi("shield-check")} Back up</button>
@@ -662,7 +704,7 @@ function renderTrackerBody() {
         <td>${esc(j.next_step)}</td>
         <td>${esc(j.contact)}</td>
         <td class="w-notes text-truncate" title="${esc(j.notes)}">${esc(j.notes)}</td>
-        <td class="text-nowrap"><button class="btn btn-sm btn-link p-0 me-2" data-action="edit-app" aria-label="Edit">${bi("pencil")}</button><button class="btn btn-sm btn-link link-danger p-0" data-action="delete-app" aria-label="Delete">${bi("trash")}</button></td>
+        <td class="text-nowrap">${["oa", "interviewing", "screening"].includes(j.status) ? `<button class="btn btn-sm btn-link p-0 me-2" data-act="prep" data-id="${j.id}" title="Interview prep" aria-label="Interview prep">${bi("mic")}</button>` : ""}<button class="btn btn-sm btn-link p-0 me-2" data-action="edit-app" aria-label="Edit">${bi("pencil")}</button><button class="btn btn-sm btn-link link-danger p-0" data-action="delete-app" aria-label="Delete">${bi("trash")}</button></td>
       </tr>`;
     }).join("") || `<tr><td colspan="14" class="text-center text-body-secondary py-4">Nothing matches.</td></tr>`}</tbody></table></div></div>
     <div class="small text-body-secondary mt-2">${rows.length} shown · click a heading to sort · "Days" turns amber after 14 days without a reply</div>`;
@@ -694,17 +736,18 @@ function exportCsv() {
 }
 
 async function backupNow() {
-  try { const b = await api("/api/backups", { method: "POST" }); toast(`Backed up: ${b.counts.tracked} applications, ${b.counts.resumes} resume(s) → ${b.name}`, 6000); if (currentView() === "settings") renderSettings(); }
+  try { const b = await api("/api/backups", { method: "POST", json: { password: $("#backup-pw")?.value || "" } }); toast(`Backed up: ${b.counts.tracked} applications, ${b.counts.resumes} resume(s) → ${b.name}`, 6000); if (currentView() === "settings") renderSettings(); }
   catch (e) { toast(e.message, 6000); }
 }
 
 async function restoreFrom(name, file) {
   const what = name ? `the backup from ${name.replace(/^jobhuntai-|\.zip$/g, "")}` : `the file ${file.name}`;
-  if (!confirm(`Replace everything in JobQuest.AI with ${what}?\n\nYour current data is backed up first, so you can undo this.`)) return;
+  if (!await ask("Restore this backup?", `Everything in JobQuest.AI is replaced with ${what}. Your current data is backed up first, so you can undo this.`, "Restore", true)) return;
   try {
     let r;
-    if (name) r = await api(`/api/backups/${encodeURIComponent(name)}/restore`, { method: "POST" });
-    else { const form = new FormData(); form.append("file", file); r = await api("/api/backups/restore-upload", { method: "POST", form }); }
+    const password = $("#backup-pw")?.value || "";
+    if (name) r = await api(`/api/backups/${encodeURIComponent(name)}/restore`, { method: "POST", json: { password } });
+    else { const form = new FormData(); form.append("file", file); form.append("password", password); r = await api("/api/backups/restore-upload", { method: "POST", form }); }
     toast(`Restored: ${r.restored.tracked} applications, ${r.restored.resumes} resume(s).`, 6000);
     await loadAll();
   } catch (e) { toast(e.message, 8000); }
@@ -728,7 +771,7 @@ async function renderBackups() {
 
 const EDIT_FIELDS = [["company", "Company", 6], ["title", "Role", 6], ["applied_on", "Date applied", 4, "date"],
   ["job_type", "Job type", 4], ["location", "Location", 4], ["app_source", "Source", 4], ["url", "Job link", 8],
-  ["last_update", "Last update", 4, "date"], ["next_step", "Next step", 6], ["contact", "Contact", 6]];
+  ["last_update", "Last update", 4, "date"], ["salary", "Salary (e.g. 12-18 LPA)", 4], ["next_step", "Next step", 4], ["contact", "Contact", 4]];
 
 function openEdit(id) {
   const j = S.jobs.find(x => x.id === id);
@@ -741,6 +784,7 @@ function openEdit(id) {
       <div class="col-12"><label class="form-label small fw-semibold mb-1" for="e-notes">Notes</label><textarea class="form-control form-control-sm" id="e-notes" rows="3">${esc(j.notes)}</textarea></div>
     </div>
     <div class="d-flex gap-2 mt-3"><button class="btn btn-sm btn-outline-danger" data-action="delete-app" data-id="${j.id}">${bi("trash")} Delete</button>
+      <button class="btn btn-sm btn-outline-secondary" data-act="prep" data-id="${j.id}">${bi("mic")} Prep</button>
       <button class="btn btn-sm btn-outline-secondary me-auto" data-action="cover-letter" data-id="${j.id}">${bi("envelope-paper")} Cover letter</button>
       <button class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-sm btn-ink" data-action="save-edit" data-id="${j.id}">Save</button></div>`;
   bootstrap.Modal.getOrCreateInstance($("#edit-modal")).show();
@@ -812,7 +856,7 @@ function showCleanup(checked) {
     if (!items.length) return "";
     return `<div class="chart-title mt-3">${title} <span class="text-body-secondary fw-normal">${items.length}</span></div><div class="vstack gap-1">
       ${items.map(([s, i]) => `<label class="prov d-flex gap-2 align-items-center"><input type="checkbox" class="form-check-input mt-0" data-clean="${i}" checked>
-        <span class="text-body-secondary text-decoration-line-through minw-10">${esc(s.old)}</span>${bi("arrow-right")}
+        <span class="text-body-secondary text-decoration-line-through">${esc(s.old)}</span>${bi("arrow-right")}
         <input class="form-control form-control-sm flex-grow-1" data-clean-new="${i}" value="${esc(s.new)}" aria-label="New name">
         <span class="badge text-bg-light border small">${esc(s.reason)}</span></label>`).join("")}</div>`;
   };
@@ -910,8 +954,8 @@ function renderProfile() {
           <button class="btn btn-outline-secondary" data-action="resume-open">Open</button></div>
         <label class="drop d-grid text-center p-4 gap-1" id="drop" for="resume-file"><span class="fs-2 text-accent">${bi("cloud-arrow-up")}</span><span class="fw-semibold">Drop a resume here or click to choose</span><span class="small text-body-secondary">PDF or DOCX, up to 5 MB</span></label>
         <input type="file" id="resume-file" class="d-none" accept=".pdf,.docx,.txt">
-        <div class="row g-2 mt-2 align-items-center"><div class="col-sm-7"><input type="text" class="form-control" id="resume-label" placeholder="Name it (optional), e.g. SDE resume"></div>
-          <div class="col-sm-5"><button class="btn btn-primary w-100" data-action="upload">${bi("upload")} Upload resume</button></div></div>
+        <div class="row g-2 mt-2 align-items-center"><div class="col-sm-7"><input type="text" class="form-control" id="resume-label" placeholder="Name it first (optional), e.g. SDE resume"></div>
+          <div class="col-sm-5"><label class="btn btn-primary w-100 mb-0" for="resume-file">${bi("upload")} Upload resume</label></div></div>
         <div class="small text-body-secondary mt-1" id="upload-msg"></div>
         ${resumes}
       </div></div></div>
@@ -924,9 +968,10 @@ function renderProfile() {
           <div class="col-12"><div class="form-label fw-semibold">Cities you'd work in</div><div class="d-flex flex-wrap gap-2">${CITIES.map(c => pick("p-pref", c, c, prefs.preferred_cities.includes(c))).join("")}</div></div>
           <div class="col-12"><div class="form-label fw-semibold">Roles to search</div><div class="d-flex flex-wrap gap-2">
             ${pick("p-role", "SDE", "SDE / software engineer", prefs.roles.includes("SDE"))}${pick("p-role", "ML", "ML / AI / data science", prefs.roles.includes("ML"))}</div></div>
+          <div class="col-sm-6"><label class="form-label fw-semibold" for="p-years">Search up to</label><select class="form-select" id="p-years">${[[0, "No experience only"], [1, "1 year"], [2, "2 years"], [3, "3 years"], [4, "4 years"], [5, "5 years"]].map(([v, l]) => `<option value="${v}" ${v === prefs.max_years ? "selected" : ""}>${l}</option>`).join("")}</select></div>
           <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" role="switch" id="p-intern" ${prefs.include_internships ? "checked" : ""}><label class="form-check-label" for="p-intern">Include internships</label></div></div>
           <div class="col-12"><label class="form-label fw-semibold" for="p-about">Note for the AI</label><textarea class="form-control" id="p-about" rows="3" placeholder="e.g. Back in India after a Master's in the US, can join immediately">${esc(prefs.about)}</textarea></div>
-          <div class="col-12 d-flex flex-wrap align-items-center gap-2"><button class="btn btn-ink" data-action="save-profile">${bi("check2")} Save</button><span class="small text-body-secondary">Role and internship changes apply on the next search.</span></div>
+          <div class="col-12 d-flex flex-wrap align-items-center gap-2"><button class="btn btn-ink" data-action="save-profile">${bi("check2")} Save</button><span class="small text-body-secondary">Role, years and internship changes apply on the next search.</span></div>
         </div>
       </div></div></div>
     </div>`;
@@ -934,7 +979,7 @@ function renderProfile() {
   ["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
   ["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, () => drop.classList.remove("over")));
   drop.addEventListener("drop", e => { e.preventDefault(); if (e.dataTransfer.files[0]) { $("#resume-file").files = e.dataTransfer.files; uploadResume(); } });
-  $("#resume-file").addEventListener("change", () => { const f = $("#resume-file").files[0]; if (f) $("#upload-msg").textContent = `Selected: ${f.name}`; });
+  $("#resume-file").addEventListener("change", () => { if ($("#resume-file").files[0]) uploadResume(); });
 }
 
 async function uploadResume() {
@@ -942,19 +987,21 @@ async function uploadResume() {
   if (!file) { toast("Choose a resume file first."); return; }
   const form = new FormData();
   form.append("file", file); form.append("label", $("#resume-label").value);
-  $("#upload-msg").textContent = S.state.ai.configured ? "Reading it with AI…" : "Reading it…";
+  const msg = $("#upload-msg");
+  msg.classList.remove("text-danger");
+  msg.textContent = `${file.name}: ${S.state.ai.configured ? "reading it with AI…" : "reading it…"}`;
   try {
     const r = await api("/api/resumes", { method: "POST", form });
     S.state.profile = r.profile;
     toast(r.ai_error ? `Added. The AI couldn't read it: ${r.ai_error}` : "Resume added. Press Find new jobs to search with it.", 6000);
     renderProfile();
-  } catch (e) { $("#upload-msg").textContent = ""; toast(e.message, 6000); }
+  } catch (e) { msg.textContent = e.message; msg.classList.add("text-danger"); $("#resume-file").value = ""; }
 }
 
 async function saveProfile() {
   const checked = name => $$(`input[name="${name}"]:checked`).map(i => i.value);
   const body = { current_city: $("#p-city").value, phone: $("#p-phone").value.trim(), preferred_cities: checked("p-pref"),
-    roles: checked("p-role"), include_internships: $("#p-intern").checked, about: $("#p-about").value.trim() };
+    roles: checked("p-role"), include_internships: $("#p-intern").checked, max_years: Number($("#p-years").value), about: $("#p-about").value.trim() };
   if (!body.roles.length) { toast("Pick at least one role."); return; }
   try { const r = await api("/api/profile", { method: "PUT", json: body }); S.state.profile = r.profile; toast("Saved."); }
   catch (e) { toast(e.message); }
@@ -966,14 +1013,15 @@ function renderSettings() {
   const st = S.state, a = st.ai, lr = st.last_run, keys = st.optional_keys;
   const failed = lr ? Object.entries(lr.sources).filter(([, v]) => typeof v !== "number") : [];
   const tile = (n, label) => `<div class="col-6 col-md-3"><div class="fact tile lift"><div class="num">${n}</div><small>${label}</small></div></div>`;
-  $("#app").innerHTML = `<div class="hero my-4 rise"><h1 class="mb-1"><span class="text-accent">Settings</span></h1><div class="text-body-secondary">AI providers, email, backups, the last search and extra job sources.</div></div>
+  $("#app").innerHTML = `
     <div class="row g-4">
       <div class="col-lg-6">
         <div class="card rise mb-4"><div class="card-body p-4">
           <h4 class="mb-1">AI providers</h4>
-          <p class="text-body-secondary small">Add a key for any one (or several). JobQuest.AI uses the first ready provider and falls back down the list. Keys stay on this PC in your .jobhuntai folder, never in OneDrive or git.</p>
-          <div class="row g-2 mb-3">${tile("$" + a.spend.usd.toFixed(3), "OpenAI spend")}${tile(a.spend.checks, "AI job checks")}${tile(a.configured ? esc(a.provider.split(" (")[0]) : "None", "in use now")}</div>
+          <p class="text-body-secondary small">Add a key for any one (or several). JobQuest.AI uses the first ready provider and falls back down the list. Keys are encrypted on this PC with your Windows account, never in OneDrive or git.</p>
+          <div class="row g-2 mb-3">${tile("$" + a.spend.usd.toFixed(3), "AI spend")}${tile(a.spend.checks, "AI job checks")}${tile(a.configured ? esc(a.provider.split(" (")[0]) : "None", "in use now")}</div>
           <div id="providers" class="vstack gap-2"><div class="text-body-secondary small">Loading…</div></div>
+          <div id="compare-box"></div>
         </div></div>
         <div class="card rise"><div class="card-body p-4">
           <h4>More job sources (free keys)</h4><p class="text-body-secondary">These add many more fresh postings every day, including ones that also appear on LinkedIn and Naukri. Paste a key, save, then press Find new jobs.</p>
@@ -989,21 +1037,19 @@ function renderSettings() {
       <div class="col-lg-6"><div class="card rise mb-4"><div class="card-body p-4">
         <h4 class="mb-1">Email (Gmail)</h4>
         ${st.mail.connected ? `<p class="mb-2"><span class="badge rounded-pill text-bg-success">✓ Connected</span> <b class="ms-1">${esc(st.mail.address)}</b>${st.mail.last_sync ? ` <span class="small text-body-secondary">· checked ${ago(st.mail.last_sync)}</span>` : ""}</p>
-          <p class="small text-body-secondary">Every 12 hours JobQuest.AI reads recent job emails (read-only) and suggests tracker updates such as "Rejected" or "OA". Nothing changes until you approve. Emails are sent only when you press Send.</p>
+          <p class="small text-body-secondary">Every 12 hours JobQuest.AI reads recent job emails (read-only) and suggests tracker updates such as "Rejected" or "OA". Nothing changes until you approve. Emails are sent only after you press Send, at most 50 a day.</p>
           <div class="d-flex flex-wrap gap-2"><button class="btn btn-sm btn-ink" data-action="mail-sync">${bi("arrow-repeat")} Check email now</button><button class="btn btn-sm btn-outline-danger" data-action="mail-disconnect">Disconnect</button></div>`
-        : `<p class="small text-body-secondary">Connect your Gmail to (1) get suggested tracker updates from recruiter emails and (2) send cold emails from the app. Uses a Google <b>app password</b>: turn on 2-Step Verification, then create one at <span class="user-select-all">myaccount.google.com/apppasswords</span>. It's stored only on this PC.</p>
-          <div class="row g-2"><div class="col-sm-6"><input type="email" class="form-control form-control-sm" id="mail-addr" placeholder="you@gmail.com" autocomplete="off"></div>
-            <div class="col-sm-6"><input type="password" class="form-control form-control-sm" id="mail-pw" placeholder="16-letter app password" autocomplete="off"></div>
-            <div class="col-12"><button class="btn btn-sm btn-ink" data-action="mail-connect">${bi("plug")} Connect and test</button></div>
-            <div class="col-12"><div id="mail-err" class="alert alert-danger py-2 small mb-0 d-none" role="alert"></div></div></div>`}
+        : gmailWizard()}
       </div></div>
       <div class="card rise mb-4"><div class="card-body p-4">
         <h4>Backup &amp; restore</h4>
         <p class="text-body-secondary small mb-2">Backs up your tracker, saved jobs, profile, resumes and settings (never your API keys). A daily backup is made automatically and the last 7 are kept, in <code id="backup-folder"></code> (outside OneDrive).</p>
         <div class="d-flex flex-wrap gap-2 mb-3"><button class="btn btn-sm btn-ink" data-action="backup-now">${bi("shield-check")} Back up now</button>
-          <label class="btn btn-sm btn-outline-secondary mb-0" for="restore-file">${bi("upload")} Restore from a file…</label><input type="file" id="restore-file" class="d-none" accept=".zip"></div>
+          <label class="btn btn-sm btn-outline-secondary mb-0" for="restore-file">${bi("upload")} Restore from a file…</label><input type="file" id="restore-file" class="d-none" accept=".zip">
+          <input type="password" class="form-control form-control-sm w-auto" id="backup-pw" placeholder="Password (optional)" autocomplete="new-password" aria-label="Backup password" title="Encrypts a manual backup. Also needed to restore one."></div>
         <div id="backup-list" class="small"></div>
       </div></div>
+      <div class="card rise mb-4"><div class="card-body p-4"><h4>MongoDB Atlas backup</h4><div id="cloud-card" class="small"></div></div></div>
       <div class="card rise"><div class="card-body p-4">
         <h4>Last search</h4>
         ${lr ? `<p class="text-body-secondary">Finished ${new Date(lr.finished).toLocaleString()}</p>
@@ -1020,6 +1066,8 @@ function renderSettings() {
 function wireSettings() {
   renderBackups();
   renderProviders();
+  drawCloud();
+  loadSwitcher().then(() => { const b = $("#compare-box"); if (b) b.innerHTML = compareHTML(); });
   const f = $("#restore-file");
   if (f) f.addEventListener("change", () => { if (f.files[0]) restoreFrom(null, f.files[0]); f.value = ""; });
 }
@@ -1028,12 +1076,13 @@ async function renderProviders(data) {
   const host = $("#providers");
   if (!host) return;
   try { data = data || await api("/api/ai/providers"); } catch (e) { host.textContent = e.message; return; }
-  host.innerHTML = data.providers.map((p, i) => `<div class="prov ${p.ready ? "ready" : ""}" data-pid="${p.id}">
+  host.innerHTML = data.providers.map((p, i) => `<div class="prov ${p.ready ? "ready" : ""} ${p.disabled ? "off" : ""}" data-pid="${p.id}">
       <div class="d-flex align-items-center gap-2 flex-wrap">
         <span class="dot ${p.ready ? "on" : ""}" aria-hidden="true"></span><b>${esc(p.label)}</b>
         ${p.free ? '<span class="badge rounded-pill tag-line">free tier</span>' : ""}
         ${p.ready ? `<span class="small text-success fw-semibold">ready${p.key_hint ? " · " + esc(p.key_hint) : ""}</span>` : ""}
-        <span class="ms-auto d-flex gap-1">${i ? `<button class="btn btn-sm btn-link p-0" data-action="prov-up" title="Try earlier">${bi("arrow-up")}</button>` : ""}
+        ${p.disabled ? `<span class="small text-body-secondary fw-semibold">disabled${p.key_hint ? " · key kept" : ""}</span>` : ""}
+        <span class="ms-auto d-flex align-items-center gap-1">${p.usable ? `<span class="form-check form-switch m-0" title="Turn this model on or off without removing its key"><input class="form-check-input" type="checkbox" role="switch" data-prov-on="${p.id}" ${p.disabled ? "" : "checked"} aria-label="Use ${esc(p.label)}"></span>` : ""}${i ? `<button class="btn btn-sm btn-link p-0" data-action="prov-up" title="Try earlier">${bi("arrow-up")}</button>` : ""}
           <button class="btn btn-sm btn-link p-0" data-action="prov-open" aria-expanded="false">${bi("chevron-down")}</button></span>
       </div>
       <div class="prov-body d-none mt-2"><div class="row g-2 align-items-end">
@@ -1060,6 +1109,7 @@ async function providerAction(el, act) {
       data = await api("/api/ai/order", { method: "PUT", json: { order: ids } });
     }
     S.state = await api("/api/state"); renderShell(); renderProviders(data);
+    loadSwitcher(true).then(() => { const b = $("#compare-box"); if (b) b.innerHTML = compareHTML(); });
   } catch (e) { toast(e.message, 9000); }
 }
 
@@ -1089,143 +1139,6 @@ function chart(id, cfg) {
 
 const hasData = list => list.some(x => x.n) && !(list.length === 1 && /not given/i.test(list[0].label));
 
-async function renderDashboard() {
-  (S.charts || []).forEach(c => c.destroy()); S.charts = [];
-  let st;
-  S.dRange = S.dRange || "30d"; S.dGrain = S.dGrain || "auto";
-  S.dCompany = S.dCompany || ""; S.dFamily = S.dFamily || "";
-  const qs = new URLSearchParams({ range: S.dRange, grain: S.dGrain, company: S.dCompany, family: S.dFamily });
-  try { st = await api(`/api/stats?${qs}`); } catch (e) { $("#app").innerHTML = `<div class="alert alert-danger mt-4">${esc(e.message)}</div>`; return; }
-  const noOthers = list => list.filter(x => x.label !== "Others");      // a lumped "Others" bar dwarfs the real ones
-  const k = st.kpis, td = st.today, ex = st.explore;
-  const seg = (attr, cur, opts) => `<div class="btn-group btn-group-sm" role="group">${opts.map(([v, l]) => `<button class="btn ${v === cur ? "btn-ink" : "btn-outline-secondary"}" data-${attr}="${v}">${l}</button>`).join("")}</div>`;
-  const toneIc = { good: "graph-up-arrow", warn: "exclamation-triangle", info: "lightbulb" };
-  const tile = (n, label, sub) => `<div class="col-6 col-md-3 col-xl"><div class="fact tile"><div class="num">${n}</div><small>${label}</small>${sub ? `<div class="tile-sub">${sub}</div>` : ""}</div></div>`;
-  const card = (id, title, cls = "col-lg-6", h = "chart-md") => `<div class="${cls}"><div class="card h-100"><div class="card-body p-3"><div class="chart-title">${title}</div><div class="${h}"><canvas id="${id}"></canvas></div></div></div></div>`;
-  const ins = S.insights || {};
-  $("#app").innerHTML = `<div class="d-flex flex-wrap align-items-end justify-content-between gap-3 hero rise">
-      <div><h1 class="h3 mb-1">Dashboard</h1><div class="text-body-secondary small">Live from your tracker · ${k.applications} applications · numbers computed locally, AI only writes the summary</div></div>
-      <div class="d-flex flex-wrap align-items-center gap-2">
-        <label class="small fw-semibold" for="target-in">Daily target</label>
-        <input type="number" min="1" max="100" class="form-control form-control-sm target-in" id="target-in" value="${td.target}">
-        <button class="btn btn-sm btn-ink" data-action="save-target">Save</button>
-        <button class="btn btn-sm btn-outline-secondary" data-action="test-reminder" title="Reminders come at 1 pm and 6 pm while the app is open, and with the 9 am / 9 pm search">${bi("bell")} Test reminder</button>
-        <a class="btn btn-sm btn-outline-secondary" href="#/tracker">${bi("table")} Table</a>
-      </div></div>
-    <div class="d-flex flex-wrap align-items-center gap-2 mb-3 dash-filters">
-      ${seg("drange", S.dRange, [["7d", "7 days"], ["30d", "30 days"], ["90d", "90 days"], ["12m", "12 months"], ["all", "All time"]])}
-      ${seg("dgrain", S.dGrain, [["auto", "Auto"], ["day", "Days"], ["week", "Weeks"], ["month", "Months"]])}
-      <select class="form-select form-select-sm w-auto" id="d-company" aria-label="Filter by company"><option value="">All companies</option>
-        ${st.options.companies.map(c => `<option ${c === S.dCompany ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
-      <select class="form-select form-select-sm w-auto" id="d-family" aria-label="Filter by role"><option value="">All roles</option>
-        ${st.options.families.map(c => `<option ${c === S.dFamily ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
-      ${S.dCompany || S.dFamily ? `<button class="btn btn-sm btn-link" data-action="d-clear">Clear filters</button>` : ""}
-      <span class="small text-body-secondary ms-1">${fmtDate(ex.start)} – ${fmtDate(ex.end)} · ${ex.applications} applications · ${ex.found.total} jobs found</span>
-    </div>
-    <div class="oracle mb-3"><div class="d-flex align-items-center gap-2 mb-2"><div class="chart-title mb-0">${bi("eye")} The oracle</div>
-        <span class="small text-body-secondary">patterns found in your own numbers</span>
-        <div class="ms-auto btn-group btn-group-sm"><button class="btn btn-outline-secondary" data-action="oracle-prev" aria-label="Previous">${bi("chevron-left")}</button><button class="btn btn-outline-secondary" data-action="oracle-next" aria-label="Next">${bi("chevron-right")}</button></div></div>
-      <div class="oracle-track" id="oracle-track">${ex.oracle.map(o => `<div class="oracle-card tone-${o.tone}"><div class="oc-ic">${bi(toneIc[o.tone] || "lightbulb")}</div>
-        <div><div class="fw-semibold">${esc(o.title)}</div><div class="small text-body-secondary mt-1">${bi("arrow-return-right")} ${esc(o.tip)}</div></div></div>`).join("")}</div></div>
-    <div class="row g-2 mb-3">
-      ${tile(`${td.count}<span class="of">/${td.target}</span>`, "today", td.met ? "target met ✓" : `${td.target - td.count} to go`)}
-      ${tile(k.this_week, "this week", `${k.avg_per_day_30}/day avg (30d)`)}
-      ${tile(k.applications, "applications", k.saved ? `${k.saved} saved` : "")}
-      ${tile(`${k.streak}d`, "streak", `${k.target_days_met_30} target days (30d)`)}
-      ${tile(`${k.response_rate}%`, "response rate", `${k.interview_rate}% reach interviews`)}
-      ${tile(k.in_progress, "in progress", `${k.offers} offer${k.offers === 1 ? "" : "s"}`)}
-    </div>
-    <div class="card mb-3 insights"><div class="card-body p-3">
-      <div class="d-flex flex-wrap align-items-center gap-2 mb-1"><div class="chart-title mb-0">${bi("stars")} AI insights &amp; advice</div>
-        <span class="small text-body-secondary" id="ins-meta">${ins.at ? `${esc(ins.provider)} · ${ago(ins.at)}` : ""}</span>
-        <button class="btn btn-sm btn-ink ms-auto" data-action="insights">${bi("stars")} ${ins.text ? "Refresh analysis" : "Analyse my search"}</button></div>
-      <div id="ins-body" class="ins-body">${ins.text ? mdLite(ins.text) : `<span class="text-body-secondary">Sends only the numbers on this page (no company names, notes or contacts) to your AI provider and returns a summary, insights and next steps.</span>`}</div>
-    </div></div>
-    <div class="row g-3">
-      ${card("c-day", `Activity by ${ex.grain} · applied, replies and jobs found`, "col-lg-8")}
-      ${card("c-status", "Status", "col-lg-4")}
-      ${card("c-funnel", "Funnel · reached at least this stage")}
-      ${card("c-week", "Per week · last 12 weeks")}
-      ${card("c-company", "Top companies", "col-lg-6", "chart-lg")}
-      ${card("c-role", "Role families", "col-lg-6", "chart-lg")}
-      ${card("c-tier", "Company tiers", "col-lg-4")}
-      ${card("c-weekday", "By weekday", "col-lg-4")}
-      ${hasData(st.sources) ? card("c-source", "Where you applied", "col-lg-4") : ""}
-      ${hasData(st.locations) ? card("c-loc", "Locations", "col-lg-4") : ""}
-      ${hasData(st.job_types) ? card("c-type", "Job type", "col-lg-4") : ""}
-      <div class="col-12"><div class="chart-title mt-2 mb-0">${bi("search")} Jobs found in this range <span class="fw-normal text-body-secondary">${ex.found.total}</span></div></div>
-      ${hasData(ex.found.companies) ? card("c-fcomp", "Jobs found by company", "col-lg-6", "chart-lg") : ""}
-      ${hasData(ex.found.roles) ? card("c-frole", "Jobs found by category", "col-lg-3") : ""}
-      ${hasData(ex.found.tiers) ? card("c-ftier", "Jobs found by company tier", "col-lg-3") : ""}
-      <div class="col-12"><div class="chart-title mt-2 mb-0">${bi("reply")} What gets replies</div></div>
-      ${ex.rates.tier.length ? card("c-rtier", "Response rate by company tier", "col-lg-4") : ""}
-      ${ex.rates.role.length ? card("c-rrole", "Response rate by role family", "col-lg-4") : ""}
-      ${ex.rates.source.length ? card("c-rsrc", "Response rate by where you applied", "col-lg-4") : ""}
-      ${ex.wait.some(w => w.n) ? card("c-wait", "Days until a reply", "col-lg-4") : ""}
-      ${ex.company_status.companies.length ? card("c-cstat", "Top companies by outcome", "col-lg-8", "chart-lg") : ""}
-    </div>
-    <button class="btn btn-ink oracle-fab" data-action="oracle-chat-open">${bi("chat-dots")} Ask the oracle</button>
-    <div class="oracle-chat card d-none" id="oracle-chat"><div class="card-body p-0 d-flex flex-column">
-      <div class="d-flex align-items-center gap-2 px-3 py-2 border-bottom"><b>${bi("eye")} Ask the oracle</b><span class="small text-body-secondary">answers from your numbers</span>
-        <button class="btn btn-sm btn-link ms-auto p-0" data-action="oracle-chat-reset" title="Clear the chat">${bi("trash")}</button>
-        <button class="btn-close" data-action="oracle-chat-close" aria-label="Close"></button></div>
-      <div class="oc-msgs flex-grow-1 p-3" id="oc-msgs"></div>
-      <div class="px-3 pb-2 d-flex flex-wrap gap-1">${["Where am I losing?", "What should I apply to this week?", "Compare ML vs SDE", "Which companies should I target?"].map(q => `<button class="btn btn-sm btn-outline-secondary rounded-pill" data-action="oracle-ask" data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>
-      <form class="d-flex gap-2 p-3 pt-1" id="oc-form"><input class="form-control form-control-sm" id="oc-in" placeholder="Ask about your job search…" autocomplete="off"><button class="btn btn-sm btn-ink">${bi("send")}</button></form>
-    </div></div>`;
-  $("#oc-form").addEventListener("submit", e => { e.preventDefault(); oracleAsk($("#oc-in").value); });
-  clearInterval(S.oracleTimer);
-  S.oracleTimer = setInterval(() => { if (currentView() !== "dashboard") return clearInterval(S.oracleTimer); if (!document.querySelector(".oracle:hover")) oracleScroll(1, true); }, 7000);
-  if (!window.Chart) { toast("Charts couldn't load.", 5000); return; }
-  chartDefaults();
-  const ink = cssVar("--jh-ink"), soft = cssVar("--jh-soft");
-  const noLegend = { plugins: { legend: { display: false } } };
-  const day = st.per_day.map(d => new Date(d.date + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" }));
-  void day;
-  const per = { day: 1, week: 7, month: 30 }[ex.grain];
-  chart("c-day", { type: "bar", data: { labels: ex.series.map(x => x.label), datasets: [
-      { type: "line", label: "Target", data: ex.series.map(() => td.target * per), borderColor: CAT[3], borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0 },
-      { type: "line", label: "Jobs found", data: ex.series.map(x => x.found), borderColor: CAT[2], backgroundColor: CAT[2], tension: .3, pointRadius: 2 },
-      { label: "Replies", data: ex.series.map(x => x.responded), backgroundColor: CAT[0], borderRadius: 3, maxBarThickness: 22 },
-      { label: "Applications", data: ex.series.map(x => x.applied), backgroundColor: ink, borderRadius: 3, maxBarThickness: 22 }] },
-    options: { plugins: { legend: { position: "bottom" } }, scales: { x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 12 } }, y: { beginAtZero: true, ticks: { precision: 0 } } } } });
-  chart("c-status", { type: "doughnut", data: { labels: st.status.map(x => STATUS_LABEL(x.label)), datasets: [{ data: st.status.map(x => x.n), backgroundColor: CAT, borderWidth: 1, borderColor: cssVar("--jh-card") }] },
-    options: { cutout: "62%", plugins: { legend: { position: "right" } } } });
-  chart("c-funnel", { type: "bar", data: { labels: st.funnel.map(x => x.label), datasets: [{ data: st.funnel.map(x => x.n), backgroundColor: st.funnel.map((_, i) => i ? CAT[i] : ink), borderRadius: 3 }] },
-    options: { indexAxis: "y", ...noLegend, scales: { x: { beginAtZero: true, ticks: { precision: 0 } }, y: { grid: { display: false } } } } });
-  chart("c-week", { type: "line", data: { labels: st.per_week.map(w => new Date(w.week + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" })),
-      datasets: [{ data: st.per_week.map(w => w.n), borderColor: ink, backgroundColor: soft, fill: true, tension: .3, pointRadius: 3, pointBackgroundColor: ink }] },
-    options: { ...noLegend, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { precision: 0 } } } } });
-  chart("c-company", { type: "bar", data: { labels: noOthers(st.companies).map(x => x.label), datasets: [{ data: noOthers(st.companies).map(x => x.n), backgroundColor: ink, borderRadius: 3, maxBarThickness: 18 }] },
-    options: { indexAxis: "y", ...noLegend, scales: { x: { beginAtZero: true, ticks: { precision: 0 } }, y: { grid: { display: false } } } } });
-  chart("c-role", { type: "pie", data: { labels: st.roles.map(x => x.label), datasets: [{ data: st.roles.map(x => x.n), backgroundColor: CAT, borderWidth: 1, borderColor: cssVar("--jh-card") }] },
-    options: { plugins: { legend: { position: "right" } } } });
-  chart("c-tier", { type: "doughnut", data: { labels: st.tiers.map(x => x.label), datasets: [{ data: st.tiers.map(x => x.n), backgroundColor: [CAT[0], CAT[1], CAT[2], CAT[9]], borderWidth: 1, borderColor: cssVar("--jh-card") }] }, options: { cutout: "55%", plugins: { legend: { position: "bottom" } } } });
-  chart("c-weekday", { type: "bar", data: { labels: st.weekday.map(x => x.label), datasets: [{ data: st.weekday.map(x => x.n), backgroundColor: ink, borderRadius: 3 }] },
-    options: { ...noLegend, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { precision: 0 } } } } });
-  if (hasData(st.sources)) chart("c-source", { type: "doughnut", data: { labels: st.sources.map(x => x.label), datasets: [{ data: st.sources.map(x => x.n), backgroundColor: CAT, borderWidth: 1, borderColor: cssVar("--jh-card") }] }, options: { cutout: "55%", plugins: { legend: { position: "bottom" } } } });
-  if (hasData(st.locations)) chart("c-loc", { type: "bar", data: { labels: noOthers(st.locations).map(x => x.label), datasets: [{ data: noOthers(st.locations).map(x => x.n), backgroundColor: CAT[0], borderRadius: 3 }] }, options: { indexAxis: "y", ...noLegend, scales: { x: { beginAtZero: true, ticks: { precision: 0 } }, y: { grid: { display: false } } } } });
-  if (hasData(st.job_types)) chart("c-type", { type: "pie", data: { labels: st.job_types.map(x => x.label), datasets: [{ data: st.job_types.map(x => x.n), backgroundColor: CAT, borderWidth: 1, borderColor: cssVar("--jh-card") }] }, options: { plugins: { legend: { position: "bottom" } } } });
-  const hbar = (id, list, color = ink) => chart(id, { type: "bar", data: { labels: list.map(x => x.label), datasets: [{ data: list.map(x => x.n), backgroundColor: color, borderRadius: 3, maxBarThickness: 18 }] },
-    options: { indexAxis: "y", ...noLegend, scales: { x: { beginAtZero: true, ticks: { precision: 0 } }, y: { grid: { display: false } } } } });
-  const rate = (id, list) => chart(id, { type: "bar", data: { labels: list.map(x => x.label), datasets: [{ data: list.map(x => x.rate), backgroundColor: list.map((_, i) => CAT[i % CAT.length]), borderRadius: 3, maxBarThickness: 26 }] },
-    options: { ...noLegend, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${c.raw}% of ${list[c.dataIndex].n} applications` } } },
-      scales: { x: { grid: { display: false }, ticks: { autoSkip: false, maxRotation: 30 } }, y: { beginAtZero: true, ticks: { callback: v => v + "%" } } } } });
-  const pie = (id, list) => chart(id, { type: "doughnut", data: { labels: list.map(x => x.label), datasets: [{ data: list.map(x => x.n), backgroundColor: CAT, borderWidth: 1, borderColor: cssVar("--jh-card") }] },
-    options: { cutout: "55%", plugins: { legend: { position: "bottom" } } } });
-  if (hasData(ex.found.companies)) hbar("c-fcomp", noOthers(ex.found.companies), CAT[0]);
-  if (hasData(ex.found.roles)) pie("c-frole", ex.found.roles);
-  if (hasData(ex.found.tiers)) pie("c-ftier", ex.found.tiers);
-  if (ex.rates.tier.length) rate("c-rtier", ex.rates.tier);
-  if (ex.rates.role.length) rate("c-rrole", ex.rates.role);
-  if (ex.rates.source.length) rate("c-rsrc", ex.rates.source);
-  if (ex.wait.some(w => w.n)) hbar("c-wait", ex.wait, CAT[4]);
-  const cs = ex.company_status;
-  if (cs.companies.length) chart("c-cstat", { type: "bar", data: { labels: cs.companies, datasets: cs.statuses.map((s, i) => ({ label: STATUS_LABEL(s), data: cs.data[i], backgroundColor: i ? CAT[i] : ink, borderRadius: 2, maxBarThickness: 18 })).filter(d => d.data.some(Boolean)) },
-    options: { indexAxis: "y", plugins: { legend: { position: "bottom" } }, scales: { x: { stacked: true, beginAtZero: true, ticks: { precision: 0 } }, y: { stacked: true, grid: { display: false } } } } });
-  if (!S.insights) api("/api/ai/insights").then(r => { if (r && r.text) { S.insights = r; $("#ins-body").innerHTML = mdLite(r.text); $("#ins-meta").textContent = `${r.provider} · ${ago(r.at)}`; } }).catch(() => {});
-}
-
 function oracleScroll(dir, wrap = false) {
   const t = $("#oracle-track"); if (!t) return;
   const step = (t.firstElementChild?.offsetWidth || 300) + 12;
@@ -1233,10 +1146,38 @@ function oracleScroll(dir, wrap = false) {
   else t.scrollBy({ left: dir * step, behavior: "smooth" });
 }
 
+function oracleChartHTML(c, id) {
+  const note = c.total > (c.rows || c.labels).length ? `Top ${(c.rows || c.labels).length} of ${c.total}` : "";
+  if (c.type === "table") {
+    return `<div class="oc-chart"><div class="fw-semibold mb-1">${esc(c.title)}</div><div class="table-responsive oc-table"><table class="table table-sm mb-0 data-table"><thead><tr>${c.columns.map(h => `<th>${esc(h.replace(/_/g, " "))}</th>`).join("")}</tr></thead>
+      <tbody>${c.rows.map(r => `<tr>${r.map(v => `<td>${esc(v)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${c.columns.length}">No data.</td></tr>`}</tbody></table></div>${note ? `<div class="small text-body-secondary">${note}</div>` : ""}</div>`;
+  }
+  if (!c.values.length) return `<div class="oc-chart"><div class="fw-semibold">${esc(c.title)}</div><div class="small text-body-secondary">No data for this yet.</div></div>`;
+  return `<div class="oc-chart"><div class="fw-semibold mb-1">${esc(c.title)}</div><div class="oc-canvas"><canvas id="${id}" role="img" aria-label="${esc(c.title)}"></canvas></div>${note ? `<div class="small text-body-secondary">${note}</div>` : ""}</div>`;
+}
+
+function drawOracleCharts(msgs) {
+  (S.ocCharts || []).forEach(x => x.destroy()); S.ocCharts = [];
+  if (!window.Chart) return;
+  chartDefaults();
+  const C = palette(), surface = cssVar("--jh-card");
+  msgs.forEach((m, i) => (m.charts || []).forEach((c, k) => {
+    const el = document.getElementById(`oc-c-${i}-${k}`);
+    if (!el) return;
+    const round = c.type === "pie", horizontal = c.type === "bar" && c.labels.length > 6;
+    const ds = { data: c.values, backgroundColor: round ? C : C[0], borderColor: round ? surface : C[0], borderWidth: round ? 2 : c.type === "line" ? 2 : 0, borderRadius: round ? 0 : 4, maxBarThickness: 18, tension: .3, pointRadius: 2 };
+    if (c.type === "histogram") { ds.barPercentage = 1; ds.categoryPercentage = .96; }
+    const value = { beginAtZero: true, ticks: { precision: 0 } }, cat = { grid: { display: false }, ticks: { autoSkip: !horizontal, maxRotation: 0, maxTicksLimit: horizontal ? undefined : 10 } };
+    S.ocCharts.push(new window.Chart(el, { type: round ? "pie" : c.type === "line" ? "line" : "bar", data: { labels: c.labels, datasets: [ds] },
+      options: { indexAxis: horizontal ? "y" : "x", plugins: { legend: { display: round, position: "right" } }, scales: round ? {} : horizontal ? { x: value, y: cat } : { x: cat, y: value } } }));
+  }));
+}
+
 function drawOracleChat(msgs) {
   const box = $("#oc-msgs"); if (!box) return;
-  box.innerHTML = msgs.length ? msgs.map(m => `<div class="oc-msg ${m.role}">${m.role === "user" ? esc(m.content) : mdLite(m.content)}</div>`).join("")
-    : `<div class="small text-body-secondary">Ask anything about your search. The oracle sees only your numbers and its findings - no company names, notes or contacts.</div>`;
+  box.innerHTML = msgs.length ? msgs.map((m, i) => `<div class="oc-msg ${m.role} ${(m.charts || []).length ? "wide" : ""}">${m.role === "user" ? esc(m.content) : mdLite(m.content)}${(m.charts || []).map((c, k) => oracleChartHTML(c, `oc-c-${i}-${k}`)).join("")}</div>`).join("")
+    : `<div class="small text-body-secondary">Ask anything about your search, or ask for any bar chart, pie chart, table or histogram. The oracle sees your company and role names with their counts, but not your notes, contacts or emails.</div>`;
+  drawOracleCharts(msgs);
   box.scrollTop = box.scrollHeight;
 }
 
@@ -1347,7 +1288,7 @@ function openCompose({ to = "", text = "", jobId = null, contactId = null, resum
 
 async function composeSend(el) {
   const to = $("#cm-to").value.trim(), subject = $("#cm-subj").value.trim(), body = $("#cm-body").value;
-  if (!confirm(`Send this email to ${to} from ${S.state.mail.address}?`)) return;
+  if (!await ask("Send this email?", `To ${to}, from ${S.state.mail.address}.`, "Send")) return;
   el.disabled = true;
   try {
     const resume_id = Number($("#cm-resume")?.value) || null;
@@ -1363,7 +1304,7 @@ async function composeSend(el) {
 // ---------------------------------------------------------------- cold email desk (its own tab)
 
 async function renderOutreach() {
-  $("#app").innerHTML = `<div class="hero rise"><h1 class="h3 mb-1">Cold email</h1><div class="text-body-secondary small">Drop screenshots of recruiter posts, LinkedIn profiles or job ads (or paste the text). JobQuest.AI pulls out the contacts, then drafts a tailored email for each one from your resume. Addresses are only taken from what you provide - never guessed.</div></div>
+  $("#app").innerHTML = `<div class="mb-3"><div class="text-body-secondary small">Drop screenshots of recruiter posts, LinkedIn profiles or job ads (or paste the text). JobQuest.AI pulls out the contacts, then drafts a tailored email for each one from your resume. Addresses are only taken from what you provide - never guessed.</div></div>
     ${S.state.ai.configured ? "" : `<div class="alert alert-warning"><b>Please add an LLM key</b> in Settings - extraction and drafting need one (screenshots need a vision model: OpenAI, Gemini or Anthropic).</div>`}
     <div class="row g-3">
       <div class="col-lg-5"><div class="card h-100"><div class="card-body p-3">
@@ -1375,16 +1316,18 @@ async function renderOutreach() {
         <button class="btn btn-sm btn-ink mt-2" data-action="or-extract">${bi("magic")} Extract contacts</button> <span class="small text-body-secondary" id="or-status"></span>
       </div></div></div>
       <div class="col-lg-7"><div class="card h-100"><div class="card-body p-3">
-        <div class="d-flex flex-wrap align-items-center gap-2 mb-2"><div class="chart-title mb-0">2 · Contacts</div><span class="small text-body-secondary" id="or-count"></span>
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-2"><div class="chart-title mb-0">2 · Contacts</div><span class="small text-body-secondary" id="or-count"></span><span data-taskbox="email"></span>
           <button class="btn btn-sm btn-outline-secondary ms-auto" data-action="or-postings" title="Collect every recruiter / HR email printed in the jobs JobQuest.AI found">${bi("search")} Find in job postings</button>
           <button class="btn btn-sm btn-outline-secondary" data-action="or-add">${bi("plus-lg")} Add manually</button>
-          <button class="btn btn-sm btn-ink" data-action="q-start" title="Draft and send to each unsent contact in turn, choosing the right resume for each">${bi("send")} Email them one by one</button></div>
+          <button class="btn btn-sm btn-outline-secondary" data-action="q-start" title="Draft and send to each unsent contact in turn">${bi("send")} One by one</button>
+          <button class="btn btn-sm btn-ink" data-act="batch-open" title="Write to many contacts, review every draft, then send them with one click">${bi("send-check")} Batch email</button></div>
         <div class="d-flex flex-wrap gap-2 mb-2">
           <div class="input-group input-group-sm flex-grow-1 w-auto"><span class="input-group-text">${bi("search")}</span><input type="search" class="form-control" id="or-q" placeholder="Search name, email, company, role…" value="${esc(S.orQ || "")}"></div>
           <select class="form-select form-select-sm w-auto" id="or-show" aria-label="Show"><option value="all">All</option><option value="email">With email</option><option value="unsent">Not sent yet</option><option value="sent">Sent</option></select></div>
         <div id="or-list" class="vstack gap-2 or-list"></div>
       </div></div></div>
     </div>`;
+  drawSwitchers();
   S.orShots = [];
   $("#or-files").addEventListener("change", e => addShots([...e.target.files]));
   const drop = $("#or-drop");
@@ -1530,7 +1473,7 @@ async function draftColdEmail(el) {
   bootstrap.Modal.getOrCreateInstance($("#ai-modal")).show();
   try {
     const r = await api("/api/ai/cold-email", { method: "POST", json: { job_id: id, email: el.dataset.email, name: el.dataset.name, role: el.dataset.role } });
-    S.coldTo = r.to;
+    S.coldTo = r.to; S.coldResume = r.resume_id;
     $("#ce-out").innerHTML = `<textarea class="form-control letter" id="ce-text" rows="12">${esc(r.text)}</textarea>
       <div class="d-flex flex-wrap gap-2 mt-2 align-items-center"><button class="btn btn-sm btn-ink" data-action="ce-compose" data-id="${id}">${bi("send")} Review &amp; send</button>
         <button class="btn btn-sm btn-outline-secondary" data-action="ce-mail">${bi("envelope-open")} Open in email app</button>
@@ -1626,25 +1569,6 @@ const COACH_STARTERS = ["Draft a one-page CV for SDE roles from my resume", "Dra
   "Write a cover letter for the job description I attached", "Review my resume for ML engineer roles in India",
   "How do I get more interview calls?", "Plan my week to hit 10 applications a day"];
 
-async function renderCoach() {
-  $("#app").innerHTML = `<div class="hero my-4 rise"><h1 class="mb-1"><span class="text-accent">Coach</span></h1><div class="text-body-secondary">Ask about your resume, applications, interviews or cold outreach. It knows your profile and tracker numbers.</div></div>
-    ${S.state.ai.configured ? "" : `<div class="alert alert-warning d-flex align-items-center gap-3"><span class="flex-grow-1"><b>Please add an LLM key.</b> The Coach needs one AI provider.</span><a class="btn btn-sm btn-ink" href="#/settings">Add key</a></div>`}
-    <div class="card coach rise"><div class="card-body p-0 d-flex flex-column">
-      <div id="chat-log" class="chat-log p-3" aria-live="polite"></div>
-      <div class="p-3 border-top">
-        <div class="d-flex flex-wrap gap-2 mb-2" id="starters">${COACH_STARTERS.map(q => `<button class="btn btn-sm btn-outline-secondary rounded-pill" data-action="coach-ask" data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>
-        <div id="chat-attached" class="d-flex flex-wrap gap-2 mb-2"></div>
-        <div class="input-group"><label class="btn btn-outline-secondary mb-0 d-flex align-items-center" for="chat-files" title="Attach CVs, job descriptions, recruiter screenshots or photos">${bi("paperclip")}</label>
-          <input type="file" id="chat-files" class="d-none" multiple accept=".pdf,.docx,.txt,.md,image/png,image/jpeg,image/webp">
-          <textarea class="form-control" id="chat-in" rows="2" placeholder="Ask anything, or attach files and photos… (Enter to send, Shift+Enter for a new line)"></textarea>
-          <button class="btn btn-ink" data-action="coach-send" aria-label="Send">${bi("send")}</button></div>
-        <div class="d-flex justify-content-between small text-body-secondary mt-1"><span>Sends your profile, tracker counts and any attachments to your AI provider, never your keys. Photos need a vision model (OpenAI, Gemini, Anthropic).</span><button class="btn btn-sm btn-link p-0" data-action="coach-clear">Clear chat</button></div>
-      </div></div></div>`;
-  S.chatFiles = []; S.chatImages = [];
-  $("#chat-files").addEventListener("change", attachChatFiles);
-  try { drawChat((await api("/api/ai/chat")).messages); } catch (e) { toast(e.message); }
-}
-
 function shrinkImage(file, max = 1400) {           // photos go to the AI as JPEG, at most 1400 px on the long side
   return new Promise((resolve, reject) => {
     const img = new Image(), url = URL.createObjectURL(file);
@@ -1706,11 +1630,12 @@ function drawChat(msgs, pending) {
   const log = $("#chat-log");
   if (!log) return;
   S.chatMsgs = msgs;
-  log.innerHTML = (msgs.length ? msgs.map((m, i) => `<div class="msg ${m.role}"><div class="bubble">${mdLite(m.content)}${(m.attached || []).length ? `<div class="att">${bi("paperclip")} ${esc(m.attached.join(", "))}</div>` : ""}</div>${m.role === "assistant" ? `<div class="via d-flex flex-wrap gap-2 align-items-center">${m.provider ? esc(m.provider) : ""}
+  log.innerHTML = (msgs.length ? msgs.map((m, i) => `<div class="msg ${m.role}"><div class="bubble">${mdLite(m.content)}${(m.attached || []).length ? `<div class="att">${bi("paperclip")} ${esc(m.attached.join(", "))}</div>` : ""}</div>${m.role === "assistant" ? `<div class="via d-flex flex-wrap gap-2 align-items-center">${esc(m.model || m.provider || "")}
       <button class="btn btn-sm btn-link p-0" data-action="msg-copy" data-i="${i}">${bi("clipboard")} Copy</button>
       <button class="btn btn-sm btn-link p-0" data-action="msg-pdf" data-i="${i}">${bi("filetype-pdf")} PDF</button>
       <button class="btn btn-sm btn-link p-0" data-action="msg-docx" data-i="${i}">${bi("filetype-docx")} Word</button>
-      ${/^Subject:/mi.test(m.content) ? `<button class="btn btn-sm btn-link p-0" data-action="msg-send" data-i="${i}">${bi("send")} Send…</button><button class="btn btn-sm btn-link p-0" data-action="msg-mail" data-i="${i}">${bi("envelope")} Open in email app</button>` : ""}</div>` : ""}</div>`).join("")
+      ${/^Subject:/mi.test(m.content) ? `<button class="btn btn-sm btn-link p-0" data-action="msg-send" data-i="${i}">${bi("send")} Send…</button><button class="btn btn-sm btn-link p-0" data-action="msg-mail" data-i="${i}">${bi("envelope")} Open in email app</button>` : ""}</div>
+      ${i === msgs.length - 1 && (m.actions || []).length ? `<div class="next-steps">${m.actions.map(a => `<button class="btn btn-sm btn-outline-secondary rounded-pill" data-act="next-step" data-q="${esc(a.prompt)}">${esc(a.label)}</button>`).join("")}</div>` : ""}` : ""}</div>`).join("")
     : `<div class="text-center text-body-secondary py-5">${bi("chat-dots", "fs-2 d-block mb-2")}Start with a question or tap a suggestion below.</div>`)
     + (pending ? `<div class="msg user"><div class="bubble">${mdLite(pending)}</div></div><div class="msg assistant"><div class="bubble typing"><span></span><span></span><span></span></div></div>` : "");
   log.scrollTop = log.scrollHeight;
@@ -1725,7 +1650,11 @@ async function coachSend(text) {
   const names = [...files, ...images].map(x => x.name);
   drawChat(prev, (text || "(files only)") + (names.length ? `\n📎 ${names.join(", ")}` : ""));
   S.chatFiles = []; S.chatImages = []; drawChatAttached();
-  try { drawChat((await api("/api/ai/chat", { method: "POST", json: { message: text, files, images } })).messages); }
+  try {
+    const v = await api("/api/ai/chat", { method: "POST", json: { message: text, files, images, conversation_id: S.convId } });
+    coachView(v);
+    if (v.fell_back_from) toast(`${v.fell_back_from} didn't answer, so ${v.provider} replied.`, 5000);
+  }
   catch (e) { drawChat(prev); S.chatFiles = files; S.chatImages = images; drawChatAttached(); toast(e.message, 9000); }
 }
 
@@ -1802,13 +1731,13 @@ document.addEventListener("click", async e => {
     case "insights": return runInsights();
     case "quick": S.f[el.dataset.k] = S.f[el.dataset.k] === el.dataset.v ? "all" : el.dataset.v; store.set("filters3", S.f); return renderJobs();
     case "cold-email": return draftColdEmail(el);
-    case "ce-compose": return openCompose({ to: S.coldTo, text: $("#ce-text").value, jobId: Number(el.dataset.id) });
+    case "ce-compose": return openCompose({ to: S.coldTo, text: $("#ce-text").value, jobId: Number(el.dataset.id), resumeId: S.coldResume });
     case "msg-send": { const t = S.chatMsgs[Number(el.dataset.i)].content; return openCompose({ to: (t.match(/[\w.+-]+@[\w-]+\.[\w.-]+/) || [""])[0], text: t }); }
     case "cm-send": return composeSend(el);
     case "cm-mailto": mailtoFrom(`Subject: ${$("#cm-subj").value}\n${$("#cm-body").value}`, $("#cm-to").value);
       toast("After you send it, press Mark as sent on the contact so it counts as an application.", 6000); return;
     case "mail-connect": return mailConnect();
-    case "mail-disconnect": if (confirm("Disconnect Gmail? The app password is removed from this PC.")) { S.state.mail = await api("/api/mail/settings", { method: "DELETE" }); renderSettings(); } return;
+    case "mail-disconnect": if (await ask("Disconnect Gmail?", "The app password is removed from this PC.", "Disconnect", true)) { S.state.mail = await api("/api/mail/settings", { method: "DELETE" }); renderSettings(); } return;
     case "mail-sync": return mailSync();
     case "mail-open": return openMailReview();
     case "mail-apply": return mailReview(true);
@@ -1839,7 +1768,6 @@ document.addEventListener("click", async e => {
     case "msg-pdf": return downloadDoc(S.chatMsgs[Number(el.dataset.i)].content, "pdf");
     case "msg-docx": return downloadDoc(S.chatMsgs[Number(el.dataset.i)].content, "docx");
     case "msg-mail": return mailtoFrom(S.chatMsgs[Number(el.dataset.i)].content);
-    case "coach-clear": try { drawChat((await api("/api/ai/chat", { method: "DELETE" })).messages); } catch (e) { toast(e.message); } return;
     case "save-source-keys": {
       const body = {};
       $$("input[data-key]").forEach(i => { if (i.value.trim()) body[i.dataset.key] = i.value.trim(); });
@@ -1849,7 +1777,7 @@ document.addEventListener("click", async e => {
       return;
     }
     case "delete-resume":
-      if (!confirm("Remove this resume from JobQuest.AI? Your original file isn't touched.")) return;
+      if (!await ask("Remove this resume?", "It leaves JobQuest.AI. Your original file isn't touched.", "Remove", true)) return;
       try { const r = await api(`/api/resumes/${el.dataset.id}`, { method: "DELETE" }); S.state.profile = r.profile; renderProfile(); } catch (err) { toast(err.message); }
       return;
     case "assess":

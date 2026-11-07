@@ -109,7 +109,9 @@ CITIES = [
     ("Kolkata", r"kolkata"), ("Ahmedabad", r"ahmedabad|gandhinagar"), ("Kochi", r"kochi|cochin"),
     ("Thiruvananthapuram", r"trivandrum|thiruvananthapuram"), ("Jaipur", r"jaipur"), ("Chandigarh", r"chandigarh|mohali"),
     ("Coimbatore", r"coimbatore"), ("Indore", r"indore"), ("Mysuru", r"mysuru|mysore"), ("Bhubaneswar", r"bhubaneswar"),
-    ("Nagpur", r"nagpur"), ("Vadodara", r"vadodara"), ("Visakhapatnam", r"visakhapatnam|vizag"),
+    ("Nagpur", r"nagpur"), ("Vadodara", r"vadodara"), ("Visakhapatnam", r"visakhapatnam|vizag"), ("Lucknow", r"lucknow"),
+    ("Surat", r"\bsurat\b"), ("Mangaluru", r"mangaluru|mangalore"), ("Nashik", r"nashik|nasik"), ("Bhopal", r"bhopal"),
+    ("Madurai", r"madurai"), ("Vijayawada", r"vijayawada"), ("Dehradun", r"dehradun"), ("Goa", r"\bgoa\b|panaji"),
 ]
 _CITY_RX = [(name, re.compile(rx, re.I)) for name, rx in CITIES]
 

@@ -14,6 +14,7 @@ class Job:
     description: str = ""
     hints: set = field(default_factory=set)   # source-supplied level flags: "intern", "entry", "university"
     detail: Optional[Callable[["Job"], None]] = None   # lazy fetch that fills description/location
+    salary: Optional[dict] = None     # figures the board gives as fields (salary.from_board)
 
     # filled in by filters.py
     kind: str = ""                    # "SDE" or "ML"
@@ -41,7 +42,7 @@ class Job:
         return None if self.posted is None else max(0, (now - self.posted).days)
 
     def to_dict(self, now):
-        d = {k: v for k, v in self.__dict__.items() if k not in ("detail", "description", "hints")}
+        d = {k: v for k, v in self.__dict__.items() if k not in ("detail", "description", "hints", "salary")}
         d["posted"] = self.posted.isoformat() if self.posted else None
         d["age_days"] = self.age_days(now)
         return d

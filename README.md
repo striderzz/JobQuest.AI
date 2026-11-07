@@ -1,33 +1,56 @@
-<p align="center"><img src="docs/social-preview.png" alt="JobQuest.AI - your AI co-pilot for the job hunt" width="100%"></p>
+<p align="center"><img src="docs/social-preview.png" alt="JobQuest.AI: your AI co-pilot for the job hunt" width="100%"></p>
 
-# JobQuest.AI
+<p align="center">
+  <a href="../../releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/striderzz/JobQuest.AI?style=for-the-badge&color=f59e0b&labelColor=16181d"></a>
+  <img alt="Windows" src="https://img.shields.io/badge/Windows-desktop_app-3987e5?style=for-the-badge&labelColor=16181d">
+  <img alt="Python 3.13" src="https://img.shields.io/badge/Python-3.13-199e70?style=for-the-badge&labelColor=16181d">
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-SQLite-9085e9?style=for-the-badge&labelColor=16181d">
+  <img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-8d9aa8?style=for-the-badge&labelColor=16181d">
+</p>
 
-**Your AI co-pilot for the job hunt.** A desktop app that finds entry-level SDE / ML / AI jobs in India, ranks them
-against your resume, tracks every application, and helps with the outreach around them: cover letters, cold
-emails, a resume coach, and Gmail-based status updates. It runs locally, works with any of 10 LLM providers
-(or a local model), and ships as a single Windows `.exe`.
+<h1 align="center">JobQuest.AI</h1>
+
+<p align="center"><b>Hunt jobs like a pack of one.</b><br>
+Finds entry-level jobs in India, ranks them against your resume with the AI models you choose, tracks every application, and handles the outreach around them.</p>
+
+<p align="center"><a href="../../releases/latest"><b>Download for Windows</b></a> · <a href="#features">Features</a> · <a href="#run-it">Run it</a> · <a href="#how-the-desktop-app-is-built">How it's built</a></p>
+
+<p align="center"><img src="docs/screenshots/jobs.png" alt="Jobs ranked against your resume" width="90%"></p>
+
+| | |
+|---|---|
+| **145+ job boards** | One search across company boards and job APIs, filtered by experience, category, role and 30 tech cities |
+| **10 AI providers** | OpenAI, Claude, Gemini, Groq and more, or a local model. Compare several on the same jobs |
+| **Real analytics** | Averages, medians, top 10 charts, company tables, and an oracle that draws charts on request |
+| **Careful outreach** | Review every draft, then send a batch with one click, at a safe pace |
+| **Yours and encrypted** | Runs on your PC, keys encrypted, optional sync between PCs through your own MongoDB Atlas |
 
 > Built as a capstone project: a full-stack Python application covering data ingestion from 140+ job boards, an
-> LLM layer with structured outputs and provider fallback, analytics, email integration, and desktop packaging.
+> LLM layer with structured outputs and provider fallback, analytics, email integration, encrypted sync and desktop packaging.
 
 ## Screenshots
 
-| Jobs, ranked against your resume | Application tracker |
+| Dashboard with top 10 charts | Ask the oracle for any chart |
 |---|---|
-| ![Jobs](docs/screenshots/jobs.png) | ![Tracker](docs/screenshots/tracker.png) |
+| ![Dashboard](docs/screenshots/dashboard.png) | ![Oracle charts](docs/screenshots/oracle-charts.png) |
 
-| Dashboard + AI insights | Cold email desk |
+| Statistics: average, median, min, max | Every company you applied to, with careers links |
 |---|---|
-| ![Dashboard](docs/screenshots/dashboard.png) | ![Cold email](docs/screenshots/cold-email.png) |
+| ![Statistics](docs/screenshots/statistics.png) | ![Company list](docs/screenshots/company-list.png) |
 
-| Coach (chat with files and photos) | Settings: 10 AI providers, Gmail, backups |
+| Application tracker | AI usage and cost |
 |---|---|
-| ![Coach](docs/screenshots/coach.png) | ![Settings](docs/screenshots/settings.png) |
+| ![Tracker](docs/screenshots/tracker.png) | ![AI usage](docs/screenshots/ai-usage.png) |
 
-<details><summary>Dark and colour themes (15 themes plus a random-palette generator)</summary>
+| Cold email desk | Coach with a model per chat |
+|---|---|
+| ![Cold email](docs/screenshots/cold-email.png) | ![Coach](docs/screenshots/coach.png) |
 
-![Jobs, dark](docs/screenshots/jobs-dark.png)
-![Dashboard, midnight](docs/screenshots/dashboard-dark.png)
+<details><summary>Settings and colour themes (15 themes plus a random-palette generator)</summary>
+
+![Settings](docs/screenshots/settings.png)
+![Jobs, midnight](docs/screenshots/jobs-dark.png)
+![Dashboard, forest](docs/screenshots/dashboard-dark.png)
 ![Tracker, ocean](docs/screenshots/tracker-ocean.png)
 </details>
 
@@ -38,13 +61,18 @@ emails, a resume coach, and Gmail-based status updates. It runs locally, works w
 **Job search**
 - Pulls fresh postings from **145+ company boards**: Greenhouse, Lever, Ashby, SmartRecruiters, Workday and
   amazon.jobs APIs, plus optional JSearch (Google for Jobs), Adzuna and Jooble keys.
-- Keeps only roles **in India** (or remote within India) that are **entry level**: intern, new grad, or under
-  3 years. Experience requirements are parsed from the text, and "preferred" sections are ignored.
+- Keeps only roles **in India** (or remote within India) up to the experience you set: no experience through
+  5 years, 2 by default. Experience requirements are parsed from the text, and "preferred" sections are ignored.
 - Scores each job against your resume twice: once by skill keywords, and once by an **LLM screen that returns
   structured output**. The screen gives the real years required, a fit score, reasons, missing skills, and
   contacts printed in the posting.
 - Filters for **company tier**: Big Tech (FAANG / MANGO), US unicorns with India offices, Indian startups, and
-  mid-size companies. Also filters by role, city, posting date and internships, with one-click "Remove".
+  mid-size companies. Also filters by **years of experience**, **Internship, Graduate or Early career**, role family,
+  **30 tech cities**, posting date and the model that checked the job, with one-click "Remove".
+- **Compare models:** tick several models and each reads your best jobs (30 by default) side by side. Job cards show every
+  model's score and flag disagreement, without changing your main score.
+- **Salaries** are read from postings when they're stated, or typed by you. They're never estimated, and sorting and
+  medians say how many jobs they cover.
 - Refreshes every 12 hours, in the app and through a Windows scheduled task. A progress bar shows how far a
   search has got in **percent**, and the Find button switches between **job openings** and **cold emails**
   (hiring contacts printed in the postings).
@@ -62,24 +90,33 @@ emails, a resume coach, and Gmail-based status updates. It runs locally, works w
     reply, and outcomes per company.
   - **Oracle cards** are rule-based findings computed in Python, each with a tip, for example "Startups reply
     4.8x more than US scale-ups".
-  - An **Ask the oracle** chat answers from those numbers.
-  - The LLM sees only aggregate numbers, never company names, notes or contacts.
+  - **Tabs** for Overview, Statistics, Companies, Company list, Roles, Funnel & replies, Jobs found and AI usage.
+  - **Statistics** gives count, average, median, min, max, spread and quartiles, all computed in Python.
+  - **Top 10 pies** for companies and roles, and sortable tables that open the matching tracker rows.
+  - The **Company list** shows each company you've applied to once, with careers-in-India and website links.
+  - **Ask the oracle** answers from your tracker and can draw any **bar, pie or line chart, histogram or table**. The AI only
+    picks what to show; Python counts every number, so it can't invent one.
+  - **AI usage** breaks down tokens and cost by model, feature and day.
+- **Excel export** with Applications, Companies, Roles, Role Families and Statistics sheets.
 - **Clean up names:** autocorrects company names (typos, short forms, "Pvt Ltd" suffixes; "tcs" becomes Tata
   Consultancy Services) and roles ("mle eng" becomes Machine Learning Engineer). You tick the changes to apply,
   and they can be undone. Company and role inputs autocomplete, and a blank location defaults to India.
-- **Role resumes:** reads up to 10 resumes from a folder, each tagged with its target role. Cold emails and
+- **Role resumes:** reads up to 30 resumes from a folder, each tagged with its target role. Cold emails and
   cover letters pick the matching one automatically.
 - A **daily target** (default 10) with a progress ring and Windows toast reminders.
 
 **AI assistance (bring any LLM)**
 - **10 providers** through one OpenAI-compatible layer: OpenAI, Anthropic, Google Gemini, Groq, DeepSeek,
   xAI Grok, Moonshot Kimi, Mistral and OpenRouter, plus a **local model through Ollama**.
-- Providers can be reordered, are tried in turn if one fails, and each has a test button. With none configured,
+- A **model switcher** in the top bar shows each provider's live status and speed. Dashboard analysis, Cold email and each
+  Coach chat can use their own model, or one setting can make a single tested model do everything.
+- Providers can be reordered, disabled without losing their key, and are tried in turn if one fails. With none configured,
   every AI feature says "Please add an LLM key".
 - **Cover letters** from the job description, your resume and any extra files, such as a LinkedIn PDF. They
   download as a clean PDF set in Calibri, and a local model is preferred when one is available.
-- **Coach**, a chat that knows your profile and tracker numbers. It accepts **files and photos** (vision) and
-  drafts CVs, emails and letters, which export to **PDF or Word**.
+- **Coach**, with separate chats that know your profile and tracker. It accepts **files and photos** (vision), drafts CVs,
+  emails and letters that export to **PDF or Word**, and suggests next steps.
+- **Interview prep** per job: a prep sheet from the posting and your resume, then a mock interview with feedback.
 - **Cold email desk:**
   - Drop in screenshots of recruiter posts, or paste text, and it extracts each contact's name, email, title,
     company and the role they're hiring for.
@@ -87,12 +124,22 @@ emails, a resume coach, and Gmail-based status updates. It runs locally, works w
   - It drafts a tailored email for each contact, and a sent email counts as an application.
   - **Email them one by one** walks through each unsent contact. It drafts each email and attaches the
     role-matched resume, then waits for **Send**, Skip or Stop.
+  - **Batch email** fills a template or writes each draft with AI. You review every one, then one click sends them
+    about 45 seconds apart, 50 a day at most, with a Stop button.
 
 **Email (Gmail, app password)**
 - Reads recent job emails without changing them. It classifies each one (rejection, OA, interview, screening,
   offer), matches it to tracker rows, and **proposes** updates for you to approve. It never moves an
   application backwards.
-- Sends cold emails one at a time, only after you review the email and press Send.
+- Sends cold emails only after you review them and press Send.
+- A guided setup connects Gmail with an app password.
+
+**Sync and security**
+- API keys, the Gmail password and the Atlas connection are encrypted with Windows DPAPI, tied to your account.
+- Each launch gets its own session key, and the app loads nothing from outside itself, so it also works offline.
+- **MongoDB Atlas sync:** paste a connection string in Settings to use your data on several PCs. It syncs on launch and every
+  6 hours, merging row by row so the newest edit wins and deletions carry over. Snapshots are encrypted with your
+  passphrase before upload, so Atlas only stores unreadable data. API keys never leave the PC.
 
 ## Architecture
 
@@ -106,7 +153,10 @@ flowchart LR
     API --> STATS["stats.py<br/>pure-Python analytics"]
     API --> MAIL["mail.py<br/>IMAP read-only / SMTP send"]
     API --> LET["letters.py<br/>PDF / DOCX"]
+    API --> VAULT["vault.py<br/>Windows DPAPI"]
+    API --> CLOUD["cloud.py<br/>encrypted snapshots + merge"]
   end
+  CLOUD --> ATLAS["Your MongoDB Atlas"]
   PIPE -->|public ATS APIs| BOARDS["Greenhouse · Lever · Ashby<br/>SmartRecruiters · Workday · Amazon"]
   LLM --> PROVIDERS["OpenAI · Anthropic · Gemini · Groq · DeepSeek<br/>Grok · Kimi · Mistral · OpenRouter · Ollama"]
   MAIL --> GMAIL["Gmail"]
@@ -115,16 +165,16 @@ flowchart LR
 
 | Layer | Tech |
 |---|---|
-| Backend | Python 3.13, FastAPI, Uvicorn, Pydantic, SQLite (WAL) |
+| Backend | Python 3.13, FastAPI, Uvicorn, Pydantic, SQLite (WAL), PyMongo (GridFS) |
 | AI | OpenAI SDK against any OpenAI-compatible endpoint, structured outputs with a JSON-mode fallback, vision input |
-| Front end | Bootstrap 5.3, Bootstrap Icons, Chart.js 4 (vendored), plain JavaScript with no build step |
+| Front end | Bootstrap 5.3, Bootstrap Icons, Chart.js 4 (all vendored), plain JavaScript with no build step |
 | Documents | pypdf, python-docx, fpdf2, openpyxl |
 | Desktop | PyInstaller single-file exe, Edge app-mode window, WinRT toast notifications |
-| Quality | 50+ `unittest` tests, pyflakes, a strict Content-Security-Policy, local-only host and origin checks |
+| Quality | 125+ `unittest` tests, pyflakes, a strict Content-Security-Policy, session keys, local-only host and origin checks |
 
 ## Run it
 
-**Install on Windows (recommended):** download **`JobQuestAI-Setup-1.0.0.exe`** from the
+**Install on Windows (recommended):** download **`JobQuestAI-Setup-3.0.0.exe`** from the
 [latest release](../../releases/latest) and run it.
 - It installs for your user only, with no admin prompt, into `%LOCALAPPDATA%\Programs\JobQuest.AI`.
 - It adds Start menu and optional Desktop shortcuts, and can optionally schedule a job search every 12 hours.
@@ -141,7 +191,7 @@ git clone https://github.com/striderzz/JobQuest.AI.git
 cd JobQuest.AI
 python -m venv .venv && .venv\Scripts\activate
 pip install -r requirements.txt
-python -m jobhunt serve          # opens http://127.0.0.1:8000
+python -m jobhunt serve          # opens the app in your browser
 ```
 
 Then:
@@ -153,7 +203,7 @@ Then:
 ```bash
 set JOBHUNT_HOME=%TEMP%\jobquest-demo
 python -m jobhunt demo
-python -m jobhunt serve --port 8010
+python -m jobhunt serve --port 8010    # prints the link to open, with this launch's session key
 ```
 
 Other commands: `build_exe.cmd` builds the exe. `schedule_daily.ps1` registers the 12-hour refresh.
@@ -164,9 +214,9 @@ Other commands: `build_exe.cmd` builds the exe. `schedule_daily.ps1` registers t
 JobQuest.AI is a FastAPI web app packaged as a native-feeling Windows program.
 
 **1. One-file exe (PyInstaller).** `build_exe.cmd` runs these steps:
-- `packaging/make_icon.py` draws the skyscraper icon with Pillow and writes `jobquestai.ico`.
+- `packaging/make_icon.py` turns the werewolf logo (`wolf.png`, drawn by `draw_werewolf.py`) into `jobquestai.ico` and the in-app icon.
 - `python -m PyInstaller --onefile --noconsole --name JobQuestAI` bundles the Python runtime, FastAPI, Uvicorn and every
-  library into a single `JobQuestAI.exe` (about 34 MB).
+  library into a single `JobQuestAI.exe` (about 38 MB).
 - `--add-data` packs the web UI (`jobhunt/static`) and `config.toml` inside it, and `--collect-submodules uvicorn` keeps the
   server's dynamic imports.
 - `packaging/launcher.py` is the entry point.
@@ -174,8 +224,7 @@ JobQuest.AI is a FastAPI web app packaged as a native-feeling Windows program.
 **2. What happens on launch** (`jobhunt/desktop.py`):
 - The exe starts the FastAPI server with Uvicorn in a background thread on `127.0.0.1:8000`, listening locally only.
 - It opens **Microsoft Edge in app mode** (`--app=...`) with its own profile, giving a clean window with no tabs or address bar.
-- It waits on that window, and closing it stops the server. If a window from an earlier run is still open, it keeps
-  serving until that one closes too.
+- It watches that window's profile, and stops the server shortly after the last window closes.
 - A background thread runs the 12-hour job refresh, the Gmail check and the daily-target reminders (Windows toasts).
 - All data stays in `%USERPROFILE%\.jobhuntai`, outside the exe: the SQLite database, resumes, API keys and backups. So
   rebuilding or reinstalling never loses anything.
@@ -205,19 +254,20 @@ build_installer.cmd
 
 ## Privacy and fair use
 
-- Everything runs on your PC. Keys, the database, resumes and backups live in `~/.jobhuntai`, outside the repo,
-  and backups never include keys.
+- Everything runs on your PC. Keys, the database, resumes and backups live in `~/.jobhuntai`, outside the repo.
+  Keys are encrypted, and backups and sync never include them.
+- Cloud sync is optional and uses your own Atlas cluster, with data encrypted before it leaves your PC.
 - Jobs come only from **public job-board APIs**. The app does not scrape LinkedIn, Naukri or Glassdoor, which
   ban it; instead it links to pre-filtered searches on those sites.
 - Contact emails are only ones **printed in postings** or in material you provide. The app never guesses or
   constructs an address.
-- AI calls send only what each feature needs. The dashboard insights get aggregate numbers only.
+- AI calls send only what each feature needs, to the provider you chose. Dashboard insights get aggregate numbers only.
+  The oracle and Coach also see company and role names with counts, but never your notes, contacts or emails.
 - No email is ever sent without your explicit click.
 
 ## Roadmap
 
 - Embeddings-based semantic matching alongside the keyword score
-- Interview-prep packs per job (likely questions from the JD)
 - macOS / Linux packaging
 
 ## License

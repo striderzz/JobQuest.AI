@@ -1,7 +1,8 @@
 """Backups: one zip per snapshot in ~/.jobhuntai/backups (outside OneDrive).
 
 Each zip holds jobhunt.db (copied with SQLite's online backup API, so it is consistent even while the app runs),
-your uploaded resumes, and a manifest. The .env file with API keys is never included.
+your uploaded resumes, and a manifest. API keys (.env, secrets.dat) are never included. An optional password
+AES-encrypts the zip, so a copied backup can't be read without it; the manifest stays readable for the list.
 """
 import json
 import re
@@ -32,7 +33,16 @@ def _counts(db_file):
         c.close()
 
 
-def create(kind="manual"):
+def _open(path, password=None):
+    """A reader for a plain or password-protected zip. pyzipper reads both."""
+    import pyzipper
+    z = pyzipper.AESZipFile(path)
+    if password:
+        z.setpassword(password.encode())
+    return z
+
+
+def create(kind="manual", password=None):
     """Write a new backup zip and return its info."""
     BACKUPS.mkdir(parents=True, exist_ok=True)
     name = f"jobhuntai-{kind}-{datetime.now():%Y%m%d-%H%M%S}.zip"
@@ -46,13 +56,18 @@ def create(kind="manual"):
             dst.close()
             src.close()
         manifest = {"app": "JobQuest.AI", "created": datetime.now().isoformat(timespec="seconds"), "kind": kind,
-                    "counts": _counts(snap)}
-        with zipfile.ZipFile(BACKUPS / name, "w", zipfile.ZIP_DEFLATED) as z:
+                    "counts": _counts(snap), "protected": bool(password)}
+        import pyzipper
+        enc = {"encryption": pyzipper.WZ_AES} if password else {}
+        with pyzipper.AESZipFile(BACKUPS / name, "w", compression=zipfile.ZIP_DEFLATED, **enc) as z:
+            if password:
+                z.setpassword(password.encode())
             z.write(snap, "jobhunt.db")
             for f in sorted(settings.RESUMES.glob("*")) if settings.RESUMES.exists() else []:
                 if f.is_file():
                     z.write(f, f"resumes/{f.name}")
-            z.writestr("manifest.json", json.dumps(manifest, indent=1))
+        with zipfile.ZipFile(BACKUPS / name, "a", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("manifest.json", json.dumps(manifest, indent=1))     # left unencrypted: counts only, no data
     if kind == "auto":
         _prune()
     return info(BACKUPS / name)
@@ -65,7 +80,8 @@ def info(path):
     except Exception:
         manifest = {}
     return {"name": path.name, "size_kb": round(path.stat().st_size / 1024), "created": manifest.get("created"),
-            "kind": manifest.get("kind", ""), "counts": manifest.get("counts", {})}
+            "kind": manifest.get("kind", ""), "counts": manifest.get("counts", {}),
+            "protected": bool(manifest.get("protected"))}
 
 
 def listing():
@@ -102,17 +118,22 @@ def auto_daily():
     return create("auto")
 
 
-def restore(zip_path):
+def restore(zip_path, password=None):
     """Replace the current data with a backup. A safety backup of the current state is made first."""
+    import pyzipper
     try:
-        z = zipfile.ZipFile(zip_path)
-    except zipfile.BadZipFile:
+        z = _open(zip_path, password)
+    except (zipfile.BadZipFile, pyzipper.BadZipFile):
         raise BackupError("That isn't a JobQuest.AI backup (not a zip file).")
+    BACKUPS.mkdir(parents=True, exist_ok=True)
     with z, tempfile.TemporaryDirectory(dir=BACKUPS) as tmp:
         if "jobhunt.db" not in z.namelist():
             raise BackupError("That isn't a JobQuest.AI backup (no jobhunt.db inside).")
         snap = Path(tmp) / "jobhunt.db"
-        snap.write_bytes(z.read("jobhunt.db"))
+        try:
+            snap.write_bytes(z.read("jobhunt.db"))
+        except RuntimeError:
+            raise BackupError("This backup is password protected. Enter the right password.") from None
         check = sqlite3.connect(snap)
         try:
             ok = check.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
@@ -137,4 +158,6 @@ def restore(zip_path):
                 fname = Path(member).name                      # never trust paths inside the zip
                 if fname:
                     (settings.RESUMES / fname).write_bytes(z.read(member))
+        from . import db
+        db.reset_migration()                # an older backup needs this version's columns and tables again
         return _counts(settings.DB_PATH)

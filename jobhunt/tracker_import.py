@@ -21,6 +21,7 @@ COLUMNS = {
     "last_update": ["last update", "last updated", "updated", "last contact"],
     "next_step": ["next step", "next steps", "next action", "follow up", "followup"],
     "contact": ["contact", "recruiter", "hr", "hr contact", "point of contact", "poc"],
+    "salary": ["salary", "ctc", "package", "compensation", "stipend", "pay"],
 }
 STATUS_WORDS = [("offer", "offer"), ("screen", "screening"), ("interview", "interviewing"), ("oa", "oa"), ("test", "oa"), ("assessment", "oa"),
                 ("assignment", "oa"), ("reject", "rejected"), ("declin", "rejected"), ("ghost", "ghosted"),
@@ -108,11 +109,14 @@ def parse(filename, data):
         d = _date(cell(r, "date"))
         if cell(r, "date") not in (None, "") and d is None:
             problems.append(f"Row {n}: couldn't read the date '{cell(r, 'date')}', used today")
+        elif "date" in col and cell(r, "date") in (None, ""):
+            problems.append(f"Row {n}: no date, used today")
         entries.append({"company": company[:120], "role": role[:200], "date": (d or date.today()).isoformat(),
                         "location": str(cell(r, "location") or "").strip()[:120],
                         "url": str(cell(r, "url") or "").strip()[:500],
                         "status": _status(cell(r, "status")) if "status" in col else "applied",
                         "notes": str(cell(r, "notes") or "").strip()[:2000],
+                        "salary": str(cell(r, "salary") or "").strip()[:60],
                         "extra": {"job_type": str(cell(r, "job_type") or "").strip()[:60],
                                   "app_source": str(cell(r, "app_source") or "").strip()[:80],
                                   "last_update": _iso(cell(r, "last_update")),
