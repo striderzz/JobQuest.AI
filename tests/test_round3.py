@@ -945,5 +945,33 @@ class CompanyList(unittest.TestCase):
         wipe()
 
 
+
+class FirstRunSetup(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(api.app)
+        db.set_setting("setup_done", None)
+        self.resumes = mock.patch.object(api.db, "resumes", return_value=[])
+        self.resumes.start()
+        self.addCleanup(self.resumes.stop)
+        self.addCleanup(db.set_setting, "profile", db.get_setting("profile"))
+        self.addCleanup(db.set_setting, "setup_done", None)
+
+    def test_new_install_needs_setup_until_finished(self):
+        self.assertTrue(api._setup_needed())
+        self.client.post("/api/setup/done")
+        self.assertFalse(api._setup_needed())
+
+    def test_existing_user_with_a_resume_never_sees_it(self):
+        api.db.resumes.return_value = [{"id": 1}]
+        self.assertFalse(api._setup_needed())
+
+    def test_typed_name_is_kept_and_does_not_recheck_jobs(self):
+        from jobhunt import profile
+        before = profile.signature("m")
+        profile.save_preferences({"name": "Asha Rao"})
+        self.assertEqual(profile.preferences()["name"], "Asha Rao")
+        self.assertEqual(profile.signature("m"), before)
+
+
 if __name__ == "__main__":
     unittest.main()

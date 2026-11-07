@@ -175,11 +175,13 @@ flowchart LR
 
 ## Run it
 
-**Install on Windows (recommended):** download **`JobQuestAI-Setup-3.0.0.exe`** from the
+**Install on Windows (recommended):** download **`JobQuestAI-Setup-3.1.0.exe`** from the
 [latest release](../../releases/latest) and run it.
 - It installs for your user only, with no admin prompt, into `%LOCALAPPDATA%\Programs\JobQuest.AI`.
 - It adds Start menu and optional Desktop shortcuts, and can optionally schedule a job search every 12 hours.
 - Uninstall it from *Settings → Apps* like any other app. Your data in `%USERPROFILE%\.jobhuntai` is kept.
+- The first launch walks you through setup: create your profile and add a resume, paste an AI key, then connect Gmail with an app password. Everything after the profile can be skipped, and *Settings → Run setup again* brings it back.
+- The installer isn't code-signed yet, so Windows SmartScreen may warn you: choose *More info → Run anyway*.
 
 **Portable:** download `JobQuestAI.exe` from the same release and double-click it; there's nothing to install.
 

@@ -613,3 +613,17 @@ main#app { margin-top: 1.25rem !important; }
 .topbar .btn-theme { display: inline-flex; align-items: center; justify-content: center; width: 2.3rem; height: 2.3rem; padding: 0; }
 .topbar .nav-tools > * { flex: none; }
 @media (min-width: 1200px) { .filter-grid { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); } }
+
+/* first-run setup: a page of its own, without the menu */
+body.in-setup { padding-left: 0; }
+body.in-setup .app-nav, body.in-setup .topbar { display: none; }
+body.in-setup main#app { margin: 0 auto; padding: 2rem 1rem; }
+.setup { max-width: 44rem; margin: 0 auto; }
+.setup-head { display: flex; align-items: center; gap: var(--sp-4); margin-bottom: var(--sp-6); }
+.setup-head img { border-radius: 12px; }
+.setup-head h1 { font-size: 1.6rem; font-weight: 700; }
+.setup-steps { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-6); list-style: none; padding: 0; margin: 0 0 var(--sp-4); color: var(--bs-secondary-color); }
+.setup-steps li { display: flex; align-items: center; gap: var(--sp-2); }
+.setup-steps span { display: grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 50%; border: 1px solid var(--bs-border-color); font-size: .8rem; font-weight: 700; }
+.setup-steps .now { color: var(--bs-body-color); font-weight: 700; }
+.setup-steps .now span, .setup-steps .done span { background: var(--jh-ink); border-color: var(--jh-ink); color: var(--jh-on-ink); }

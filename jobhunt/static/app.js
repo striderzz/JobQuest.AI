@@ -267,10 +267,12 @@ const currentView = () => (location.hash.replace(/^#\//, "") || "jobs").split("?
 function route() {
   if (!S.state) return;                           // a hash change can arrive before the first load finishes
   const view = currentView();
+  if (S.state.setup.needed && view !== "setup") { location.replace("#/setup"); return; }
+  document.body.classList.toggle("in-setup", view === "setup");
   $("#page-title").textContent = PAGE_TITLES[view] || "Jobs";
   (S.charts || []).forEach(c => c.destroy()); S.charts = [];
   $$("#tabs .nav-link").forEach(a => a.classList.toggle("active", a.dataset.view === view));
-  ({ jobs: renderJobs, tracker: renderTracker, dashboard: renderDashboard, outreach: renderOutreach, coach: renderCoach, profile: renderProfile, settings: renderSettings }[view] || renderJobs)();
+  ({ jobs: renderJobs, tracker: renderTracker, dashboard: renderDashboard, outreach: renderOutreach, coach: renderCoach, profile: renderProfile, settings: renderSettings, setup: renderSetup }[view] || renderJobs)();
   const nav = bootstrap.Collapse.getInstance($("#nav"));
   if (nav) nav.hide();
   drawSwitchers();
@@ -1017,7 +1019,7 @@ function renderSettings() {
     <div class="row g-4">
       <div class="col-lg-6">
         <div class="card rise mb-4"><div class="card-body p-4">
-          <h4 class="mb-1">AI providers</h4>
+          <div class="d-flex flex-wrap align-items-center gap-2 mb-1"><h4 class="mb-0">AI providers</h4><button class="btn btn-sm btn-outline-secondary ms-auto" data-act="setup-open">${bi("magic")} Run setup again</button></div>
           <p class="text-body-secondary small">Add a key for any one (or several). JobQuest.AI uses the first ready provider and falls back down the list. Keys are encrypted on this PC with your Windows account, never in OneDrive or git.</p>
           <div class="row g-2 mb-3">${tile("$" + a.spend.usd.toFixed(3), "AI spend")}${tile(a.spend.checks, "AI job checks")}${tile(a.configured ? esc(a.provider.split(" (")[0]) : "None", "in use now")}</div>
           <div id="providers" class="vstack gap-2"><div class="text-body-secondary small">Loading…</div></div>
@@ -1235,7 +1237,7 @@ async function mailConnect() {
   try {
     toast("Testing the login with Gmail…", 15000);
     S.state.mail = await api("/api/mail/settings", { method: "PUT", json: { address: $("#mail-addr").value, app_password: $("#mail-pw").value } });
-    toast("Gmail connected.", 3000); renderSettings();
+    toast("Gmail connected.", 3000); (currentView() === "setup" ? renderSetup : renderSettings)();
   } catch (e) { const box = $("#mail-err"); if (box) { box.textContent = e.message; box.classList.remove("d-none"); } toast("Gmail didn't connect - see the message under the form.", 4000); }
 }
 

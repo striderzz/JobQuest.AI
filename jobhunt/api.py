@@ -90,6 +90,17 @@ def _cloud_pulled():
     return cloud.state()["pulled"]
 
 
+def _setup_needed():
+    """Only a new install sees the setup steps: anyone who already has a resume is past them."""
+    return not db.get_setting("setup_done") and not db.resumes()
+
+
+@app.post("/api/setup/done")
+def setup_done():
+    db.set_setting("setup_done", True)
+    return {"ok": True}
+
+
 @app.get("/api/state")
 def state():
     cfg = settings.load_config()
@@ -106,6 +117,7 @@ def state():
         "target": {"count": stats.today_count(), "target": stats.target()},
         "mail": _mail_state(),
         "cloud_pulled": _cloud_pulled(),
+        "setup": {"needed": _setup_needed()},
     }
 
 
@@ -547,6 +559,7 @@ def set_source_keys(body: SourceKeys):
 
 
 class Preferences(BaseModel):
+    name: Optional[str] = None
     current_city: Optional[str] = None
     phone: Optional[str] = None
     preferred_cities: Optional[list[str]] = None
