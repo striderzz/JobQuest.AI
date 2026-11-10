@@ -130,8 +130,8 @@ function tabBody(st) {
         <div class="ms-auto btn-group btn-group-sm"><button class="btn btn-outline-secondary" data-action="oracle-prev" aria-label="Previous">${bi("chevron-left")}</button><button class="btn btn-outline-secondary" data-action="oracle-next" aria-label="Next">${bi("chevron-right")}</button></div></div>
         <div class="oracle-track" id="oracle-track">${ex.oracle.map(o => `<div class="oracle-card tone-${o.tone}"><div class="oc-ic">${bi(toneIc[o.tone] || "lightbulb")}</div><div><div class="fw-semibold">${esc(o.title)}</div><div class="small text-body-secondary mt-1">${esc(o.tip)}</div></div></div>`).join("")}</div></div>
       <div class="row g-3 mb-3">${chartCard("c-day", `Applications by ${ex.grain}`, "col-12")}</div>
-      <div class="card insights"><div class="card-body p-3"><div class="d-flex flex-wrap align-items-center gap-2 mb-1"><div class="chart-title mb-0">${bi("stars")} AI insights</div>
-        <span class="small text-body-secondary" id="ins-meta">${ins.at ? `${esc(ins.provider)} · ${ago(ins.at)}` : ""}</span><span class="ms-auto" data-taskbox="dashboard"></span><button class="btn btn-sm btn-ink" data-action="insights">${bi("stars")} ${ins.text ? "Refresh analysis" : "Analyse my search"}</button></div>
+      <div class="card insights"><div class="card-body p-3"><div class="d-flex flex-wrap align-items-center gap-2 mb-1"><div class="chart-title mb-0">AI insights</div>
+        <span class="small text-body-secondary" id="ins-meta">${ins.at ? `${esc(ins.provider)} · ${ago(ins.at)}` : ""}</span><span class="ms-auto" data-taskbox="dashboard"></span><button class="btn btn-sm btn-ink" data-action="insights">${bi("arrow-repeat")} ${ins.text ? "Refresh analysis" : "Analyse my search"}</button></div>
         <div id="ins-body" class="ins-body">${ins.text ? mdLite(ins.text) : `<span class="text-body-secondary">Sends only these numbers (no company names, notes or contacts) to your AI provider.</span>`}</div></div></div>`;
   }
 }
@@ -185,8 +185,8 @@ function drawCharts(st) {
       const per = { day: 1, week: 7, month: 30 }[ex.grain];
       chart("c-day", { type: "bar", data: { labels: ex.series.map(x => x.label), datasets: [
           { type: "line", label: "Target", data: ex.series.map(() => st.today.target * per), borderColor: C[8], borderDash: [5, 4], borderWidth: 2, pointRadius: 0 },
-          { label: "Replies", data: ex.series.map(x => x.responded), backgroundColor: C[2], borderRadius: 4, maxBarThickness: 18 },
-          { label: "Applications", data: ex.series.map(x => x.applied), backgroundColor: C[0], borderRadius: 4, maxBarThickness: 18 }] },
+          { label: "Replies", data: ex.series.map(x => x.responded), backgroundColor: cssVar("--jh-ink"), borderRadius: 4, maxBarThickness: 18 },
+          { label: "Applications", data: ex.series.map(x => x.applied), backgroundColor: cssVar("--line-strong") || C[8], borderRadius: 4, maxBarThickness: 18 }] },
         options: { plugins: { legend: { position: "bottom" } }, scales: axes() } });
     }
   }

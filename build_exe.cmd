@@ -4,13 +4,15 @@ setlocal
 set "PY=%USERPROFILE%\.jobhuntai\venv\Scripts\python.exe"
 if not exist "%PY%" ( echo Run setup.cmd first. & pause & exit /b 1 )
 set "SRC=%~dp0"
-"%PY%" -m pip install --disable-pip-version-check -q pyinstaller pillow || exit /b 1
+"%PY%" -m pip install --disable-pip-version-check -q pyinstaller pillow anthropic "scrapling[fetchers]" || exit /b 1
 "%PY%" "%SRC%packaging\make_icon.py" || exit /b 1
 "%PY%" -m PyInstaller --noconfirm --clean --onefile --noconsole --name JobQuestAI ^
   --icon "%SRC%packaging\jobquestai.ico" ^
   --add-data "%SRC%jobhunt\static;jobhunt\static" ^
   --add-data "%SRC%config.toml;." ^
   --collect-submodules uvicorn --collect-submodules pymongo --collect-submodules dns --collect-data docx ^
+  --collect-all curl_cffi --collect-submodules scrapling --collect-submodules anthropic ^
+  --exclude-module playwright --exclude-module patchright --exclude-module camoufox ^
   --paths "%SRC%." ^
   --workpath "%USERPROFILE%\.jobhuntai\build" --specpath "%USERPROFILE%\.jobhuntai\build" --distpath "%SRC%." ^
   "%SRC%packaging\launcher.py" || exit /b 1

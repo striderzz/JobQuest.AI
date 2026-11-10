@@ -32,6 +32,28 @@ const YOE = [["all", "Any experience"], ["0", "No experience"], ["1", "Up to 1 y
 const categoryOf = j => j.level === "Intern" ? "intern" : j.level === "New grad" ? "graduate" : "early";
 // stated years decide; internships and graduate roles count as no experience even if the posting gives no number
 const fitsYears = (j, max) => j.years != null ? j.years <= max : categoryOf(j) !== "early";
+// Search that forgives typos and knows common synonyms: "machin lerning" and "bangalore" still find their jobs.
+const SYNONYMS = [["machine", "ml", "ai"], ["learning", "ml"], ["software", "sde", "swe", "developer", "programmer"],
+  ["developer", "engineer", "sde"], ["genai", "generative", "llm"], ["backend", "back-end", "server"], ["frontend", "front-end", "ui"],
+  ["fresher", "entry", "graduate", "junior", "trainee", "intern"], ["bengaluru", "bangalore"], ["gurugram", "gurgaon"],
+  ["mumbai", "bombay"], ["chennai", "madras"], ["scientist", "science"]];
+function editDistance(a, b) {
+  if (Math.abs(a.length - b.length) > 2) return 3;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let k = 1; k <= b.length; k++) cur[k] = Math.min(prev[k] + 1, cur[k - 1] + 1, prev[k - 1] + (a[i - 1] === b[k - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+function fuzzyHas(hay, w) {
+  if (hay.includes(w)) return true;
+  if (SYNONYMS.some(g => g.includes(w) && g.some(s => s !== w && hay.includes(s)))) return true;
+  if (w.length < 4) return false;
+  const allow = w.length >= 8 ? 2 : 1;
+  return hay.split(/[^a-z0-9+#.]+/).some(t => t.length >= 3 && editDistance(t, w) <= allow);
+}
 const modelSpread = j => { const s = (j.models || []).map(m => m.score).filter(x => x != null); return s.length > 1 ? Math.max(...s) - Math.min(...s) : null; };
 
 const PAGE_TITLES = { jobs: "Jobs", outreach: "Cold email", tracker: "Tracker", dashboard: "Dashboard", coach: "Coach", profile: "Profile", settings: "Settings" };
@@ -166,18 +188,18 @@ function renderShell() {
   const tg = S.state.target || { count: 0, target: 10 }, frac = Math.min(1, tg.count / tg.target), C = 2 * Math.PI * 9;
   $("#target-pill").innerHTML = `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="9" class="tr-bg"/><circle cx="12" cy="12" r="9" class="tr-fg ${frac >= 1 ? "done" : ""}" stroke-dasharray="${(frac * C).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 12 12)"/></svg><span><b>${tg.count}</b>/${tg.target} today</span>`;
   $("#target-pill").title = frac >= 1 ? "Daily target met" : `${tg.target - tg.count} more applications to hit today's target`;
-  const btn = $("#refresh-btn");
-  if (!btn.disabled) btn.innerHTML = findLabel();
+  findButtons(S.searching);
   themeIcon();
   $$("#tabs .nav-link").forEach(a => a.classList.toggle("active", a.dataset.view === currentView()));
 }
 
 function showProgress(p) {
-  const box = $("#progress"), btn = $("#refresh-btn");
-  if (!p.running) { box.classList.add("d-none"); btn.disabled = false; btn.innerHTML = findLabel(); return; }
+  const box = $("#progress");
+  S.searching = !!p.running;
+  findButtons(S.searching);
+  if (!p.running) { box.classList.add("d-none"); return; }
   drawLanes(p);
   box.classList.remove("d-none");
-  btn.disabled = true; btn.innerHTML = `${bi("arrow-repeat", "spin")} Searching…`;
   $("#progress-label").textContent = p.phase || "Working";
   const pct = p.percent ?? 0;
   $("#progress-bar").style.width = `${pct}%`;
@@ -185,12 +207,25 @@ function showProgress(p) {
   $("#progress-detail").textContent = p.total ? `${p.done} of ${p.total}${p.detail ? " · " + p.detail : ""}` : (p.detail || "");
 }
 
-function findMode() { try { return localStorage.getItem("jh:find") || "jobs"; } catch { return "jobs"; } }
-function findLabel() { return findMode() === "cold" ? `${bi("envelope-at")} Find cold emails` : `${bi("arrow-repeat")} Find new jobs`; }
-function setFindMode(m) {
-  try { localStorage.setItem("jh:find", m); } catch { /* private mode */ }
-  const btn = $("#refresh-btn"); if (!btn.disabled) btn.innerHTML = findLabel();
-  toast(m === "cold" ? "Mode: cold emails - a search, then the hiring emails printed in postings" : "Mode: job openings", 2500);
+// Two separate actions, and the only way a search ever starts.
+function findButtons(busy) {
+  const jobs = $("#refresh-btn"), cold = $("#cold-btn");
+  if (!jobs || !cold) return;
+  jobs.disabled = cold.disabled = !!busy;
+  jobs.innerHTML = busy ? `${bi("arrow-repeat", "spin")} Searching…` : `${bi("search")} Find jobs`;
+  cold.innerHTML = `${bi("envelope-at")} Find cold emails`;
+  cold.title = "Collect hiring emails printed in the job postings you already have. No new search.";
+}
+
+async function findCold() {
+  const cold = $("#cold-btn"); cold.disabled = true;
+  try {
+    const o = await api("/api/outreach/from-postings", { method: "POST" });
+    toast(o.added ? `${o.added} new hiring contact${o.added === 1 ? "" : "s"} added to the queue` : "No new contacts in your postings. Find jobs first to get more.", 6000);
+    location.hash = "#/outreach";
+    if (currentView() === "outreach") route();
+  } catch (e) { toast(e.message, 6000); }
+  cold.disabled = !!S.searching;
 }
 
 // Type-ahead for company and role inputs: well-known names plus everything already in your tracker.
@@ -244,11 +279,6 @@ function startPolling() {
     else if (p.result) {
       const r = p.result;
       toast(`${r.new} new job${r.new === 1 ? "" : "s"} · ${r.kept} matching${r.ai_checked ? ` · AI checked ${r.ai_checked}` : ""}${r.ai_compared ? ` · ${r.ai_compared} model comparisons` : ""}${r.ai_error ? " · AI: " + r.ai_error : ""}`, 6000);
-      if (S.coldAfter) {
-        S.coldAfter = false;
-        try { const o = await api("/api/outreach/from-postings", { method: "POST" }); toast(`${o.added} new hiring contact${o.added === 1 ? "" : "s"} from postings`, 6000); location.hash = "#/outreach"; }
-        catch (e) { toast(e.message, 6000); }
-      }
     }
     await loadAll();
   };
@@ -257,7 +287,6 @@ function startPolling() {
 }
 
 async function startRefresh() {
-  S.coldAfter = findMode() === "cold";
   try { await api("/api/refresh", { method: "POST" }); startPolling(); }
   catch (e) { toast(e.message, 6000); }
 }
@@ -282,7 +311,7 @@ window.addEventListener("hashchange", () => { hideSheet(); route(); window.scrol
 
 function banners() {
   const st = S.state, out = [];
-  if (!st.ai.screening) out.push(`<div class="alert alert-info d-flex flex-wrap align-items-center gap-3 rise mt-4"><span class="flex-grow-1"><b>${st.ai.configured ? "Add a cloud LLM key for AI fit scores." : "Please add an LLM key."}</b> Any one provider works (Gemini, Groq and OpenRouter have free tiers). ${st.ai.configured ? "Your local model already powers cover letters and the Coach." : "It also turns on cover letters and the Coach."}</span><a class="btn btn-primary" href="#/settings">${bi("stars")} Add LLM key</a></div>`);
+  if (!st.ai.screening) out.push(`<div class="alert alert-info d-flex flex-wrap align-items-center gap-3 rise mt-4"><span class="flex-grow-1"><b>${st.ai.configured ? "Add a cloud LLM key for AI fit scores." : "Please add an LLM key."}</b> Any one provider works (Gemini, Groq and OpenRouter have free tiers). ${st.ai.configured ? "Your local model already powers cover letters and the Coach." : "It also turns on cover letters and the Coach."}</span><a class="btn btn-primary" href="#/settings">${bi("info-circle")} Add LLM key</a></div>`);
   const la = st.last_attempt;
   if (la && !la.ok && la.error && !st.refresh.running) out.push(`<div class="alert alert-danger rise mt-4"><b>The last search failed:</b> ${esc(la.error)}</div>`);
   else if (st.last_run && st.last_run.error && st.ai.configured) out.push(`<div class="alert alert-warning d-flex flex-wrap align-items-center gap-3 rise mt-4"><span class="flex-grow-1"><b>Some AI checks failed:</b> ${esc(st.last_run.error)}</span><a class="btn btn-outline-secondary" href="#/settings">Check settings</a></div>`);
@@ -309,7 +338,7 @@ function visible(j) {
   if (f.contact && !j.contacts.length) return false;
   if (f.q) {
     const hay = [j.title, j.company, j.location, ...j.matched, ...(j.ai ? j.ai.must_haves : [])].join(" ").toLowerCase();
-    if (!f.q.toLowerCase().split(/\s+/).filter(Boolean).every(w => hay.includes(w))) return false;
+    if (!f.q.toLowerCase().split(/\s+/).filter(Boolean).every(w => fuzzyHas(hay, w))) return false;
   }
   return true;
 }
@@ -405,7 +434,7 @@ function renderJobs() {
         ${models.length ? `<div><label class="form-label small fw-semibold text-body-secondary mb-1">Checked by</label><select class="form-select" data-f="model">${opt("all", "Any model", f.model)}${models.map(m => opt(m, m, f.model)).join("")}</select></div>` : ""}
       </div>
       <div class="d-flex flex-wrap align-items-center gap-3 mt-3"><span data-jobmodels></span>${sw("newOnly", "New today")}${sw("contact", "Has HR contact", "envelope")}${sw("showAll", `Show applied, removed &amp; AI-rejected${nRejected ? ` (${nRejected})` : ""}`)}
-        <span class="ms-auto d-flex flex-wrap gap-2">${quick("yoe", "0", `${bi("stars")} No experience`, live.filter(j => fitsYears(j, 0)).length)}
+        <span class="ms-auto d-flex flex-wrap gap-2">${quick("yoe", "0", `${bi("mortarboard")} No experience`, live.filter(j => fitsYears(j, 0)).length)}
           ${quick("type", "intern", `${bi("mortarboard")} Internships`, live.filter(j => categoryOf(j) === "intern").length)}${quick("type", "graduate", "Graduate", live.filter(j => categoryOf(j) === "graduate").length)}${quick("type", "early", "Early career", live.filter(j => categoryOf(j) === "early").length)}
           ${Object.entries(TIERS).filter(([k]) => k !== "mid").map(([k, v]) => quick("tier", k, v.split(" (")[0], S.jobs.filter(j => j.active && j.tier === k && !["hidden", ...TRACK].includes(j.status)).length)).join("")}</span>
       </div>
@@ -483,7 +512,7 @@ function detailHTML(j) {
       ${btn("saved", "Save", "Saved", "bookmark")}${btn("applied", "Mark applied", "Applied", "check2-circle")}${btn("hidden", "Remove", "Removed", "x-circle")}
     </div>
 
-    <div class="sec"><div class="sec-title">${bi("stars")} ${ai ? "AI match analysis" : "Keyword match"}</div>
+    <div class="sec"><div class="sec-title">${bi("clipboard-check")} ${ai ? "AI match analysis" : "Keyword match"}</div>
       <div class="match-box p-3 d-flex flex-wrap gap-4 align-items-center">${ring(j.score, v, 100, true)}
         <div class="flex-grow-1 minw-14"><div class="fs-5 fw-bold text-capitalize">${ai ? esc(ai.verdict) + " fit" : "Keyword score"}</div>
           <div class="small text-body-secondary">${ai ? `AI ${ai.fit_score}/100 · keywords ${Math.round(j.keyword_score || 0)}/100` : "Add an AI key in Settings for an AI verdict"}</div>
@@ -492,7 +521,7 @@ function detailHTML(j) {
       ${(j.models || []).length > 1 ? `<div class="vstack gap-1 mt-3">${j.models.map(m => `<div class="model-row"><b>${m.score ?? "–"}</b><span class="fw-semibold">${esc(m.model)}</span><span class="small text-body-secondary text-truncate">${esc((m.reasons || [])[0] || "")}</span></div>`).join("")}</div>` : ""}
       ${j.ai_rejected ? `<div class="alert alert-danger mt-3 mb-0">The AI thinks this one breaks your rules: too many years, not entry level, or not in India.</div>` : ""}
       ${j.ai_error ? `<div class="alert alert-warning mt-3 mb-0">Last AI check failed: ${esc(j.ai_error)}</div>` : ""}
-      ${S.state.ai.configured ? `<button class="btn btn-sm btn-outline-secondary mt-3" data-action="assess" data-id="${j.id}">${bi("stars")} ${ai ? "Ask AI again" : "Ask AI to check this job"}</button>` : ""}
+      ${S.state.ai.configured ? `<button class="btn btn-sm btn-outline-secondary mt-3" data-action="assess" data-id="${j.id}">${bi("search")} ${ai ? "Ask AI again" : "Ask AI to check this job"}</button>` : ""}
       <button class="btn btn-sm btn-outline-secondary mt-3" data-action="cover-letter" data-id="${j.id}">${bi("envelope-paper")} Cover letter</button>
       <button class="btn btn-sm btn-outline-secondary mt-3" data-act="prep" data-id="${j.id}">${bi("mic")} Interview prep</button>
     </div>
@@ -514,7 +543,7 @@ function detailHTML(j) {
       ${j.contacts.length ? j.contacts.map(c => `<div class="contact-row d-flex flex-wrap align-items-center gap-3 p-3 mb-2 lift">
           <div class="me-auto"><div class="fw-semibold">${esc(c.name || "Contact")}</div><div class="small text-body-secondary">${esc(c.role || "listed in the job description")}</div></div>
           ${c.email ? `<a class="fw-semibold text-break" href="mailto:${esc(c.email)}">${esc(c.email)}</a><button class="btn btn-sm btn-outline-secondary" data-copy="${esc(c.email)}">${bi("clipboard")} Copy</button>
-            <button class="btn btn-sm btn-ink" data-action="cold-email" data-id="${j.id}" data-email="${esc(c.email)}" data-name="${esc(c.name || "")}" data-role="${esc(c.role || "")}">${bi("stars")} Draft cold email</button>` : ""}
+            <button class="btn btn-sm btn-ink" data-action="cold-email" data-id="${j.id}" data-email="${esc(c.email)}" data-name="${esc(c.name || "")}" data-role="${esc(c.role || "")}">${bi("pencil-square")} Draft cold email</button>` : ""}
           ${c.phone ? `<span>${bi("telephone")} ${esc(c.phone)}</span>` : ""}</div>`).join("")
         : `<div class="text-body-secondary">This posting doesn't list a recruiter or HR email. Most company job boards don't, so apply through the button above.</div>`}
     </div>
@@ -861,7 +890,7 @@ function showCleanup(checked) {
         <span class="badge text-bg-light border small">${esc(s.reason)}</span></label>`).join("")}</div>`;
   };
   $("#ai-modal-body").innerHTML = `<div class="d-flex align-items-center gap-2 mb-1"><h5 class="mb-0">${bi("magic")} Clean up names</h5>
-      <button class="btn btn-sm btn-outline-secondary ms-auto" data-action="cleanup-ai" title="Sends only the company and role names to your AI provider">${bi("stars")} Ask AI for the rest</button></div>
+      <button class="btn btn-sm btn-outline-secondary ms-auto" data-action="cleanup-ai" title="Sends only the company and role names to your AI provider">${bi("search")} Ask AI for the rest</button></div>
     <div class="small text-body-secondary">Checked ${checked ?? ""} entries. Untick anything that's wrong, edit the new name if needed, then apply. Nothing changes until you apply, and you can undo.</div>
     ${list.length ? group("company", "Companies") + group("title", "Roles") + `<div class="d-flex gap-2 mt-3 sticky-bottom bg-body py-2">
         <button class="btn btn-sm btn-ink" data-action="cleanup-apply">${bi("check2")} Apply ticked</button>
@@ -970,6 +999,9 @@ function renderProfile() {
             ${pick("p-role", "SDE", "SDE / software engineer", prefs.roles.includes("SDE"))}${pick("p-role", "ML", "ML / AI / data science", prefs.roles.includes("ML"))}</div></div>
           <div class="col-sm-6"><label class="form-label fw-semibold" for="p-years">Search up to</label><select class="form-select" id="p-years">${[[0, "No experience only"], [1, "1 year"], [2, "2 years"], [3, "3 years"], [4, "4 years"], [5, "5 years"]].map(([v, l]) => `<option value="${v}" ${v === prefs.max_years ? "selected" : ""}>${l}</option>`).join("")}</select></div>
           <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" role="switch" id="p-intern" ${prefs.include_internships ? "checked" : ""}><label class="form-check-label" for="p-intern">Include internships</label></div></div>
+          <div class="col-12"><div class="form-label fw-semibold mb-1">Also jobs abroad</div><div class="small text-body-secondary mb-2">India comes first. Abroad, only roles whose posting offers visa sponsorship or relocation are kept.</div>
+            <div class="d-flex flex-wrap gap-2">${[["gulf", "Gulf"], ["sea", "Singapore, Thailand, Malaysia"], ["anglo", "US, UK, Canada, Australia, NZ, Ireland"], ["europe", "Europe"]]
+              .map(([v, l]) => pick("p-region", v, l, (prefs.regions || []).includes(v))).join("")}</div></div>
           <div class="col-12"><label class="form-label fw-semibold" for="p-about">Note for the AI</label><textarea class="form-control" id="p-about" rows="3" placeholder="e.g. Back in India after a Master's in the US, can join immediately">${esc(prefs.about)}</textarea></div>
           <div class="col-12 d-flex flex-wrap align-items-center gap-2"><button class="btn btn-ink" data-action="save-profile">${bi("check2")} Save</button><span class="small text-body-secondary">Role, years and internship changes apply on the next search.</span></div>
         </div>
@@ -1001,7 +1033,8 @@ async function uploadResume() {
 async function saveProfile() {
   const checked = name => $$(`input[name="${name}"]:checked`).map(i => i.value);
   const body = { current_city: $("#p-city").value, phone: $("#p-phone").value.trim(), preferred_cities: checked("p-pref"),
-    roles: checked("p-role"), include_internships: $("#p-intern").checked, max_years: Number($("#p-years").value), about: $("#p-about").value.trim() };
+    roles: checked("p-role"), include_internships: $("#p-intern").checked, max_years: Number($("#p-years").value), about: $("#p-about").value.trim(),
+    regions: checked("p-region") };
   if (!body.roles.length) { toast("Pick at least one role."); return; }
   try { const r = await api("/api/profile", { method: "PUT", json: body }); S.state.profile = r.profile; toast("Saved."); }
   catch (e) { toast(e.message); }
@@ -1035,6 +1068,16 @@ function renderSettings() {
         </div></div>
       </div>
       <div class="col-lg-6"><div class="card rise mb-4"><div class="card-body p-4">
+        <h4 class="mb-1">AI budget and models</h4>
+        <p class="small text-body-secondary">Claude answers first, then OpenAI, Gemini and the free models. At the monthly limit, paid models pause and the free ones carry on.</p>
+        <div id="budget-box" class="mb-3"><div class="skel w-50"></div></div>
+        <div class="fw-semibold small mb-2">Model for each task</div>
+        <div class="task-grid">${[["coach", "Coach"], ["cover_letter", "Cover letters"], ["email", "Cold email"], ["interview", "Interview prep"],
+          ["dashboard", "Dashboard and oracle"], ["planning", "Search planning"], ["cleanup", "Name cleanup"]].map(([k, l]) =>
+          `<span class="small">${l}</span><span data-taskbox="${k}"></span>`).join("")}</div>
+        <div class="small text-body-secondary mt-2">Default lets Claude pick per task: Haiku for bulk checks, Opus for writing. Local models work here too; they never screen jobs.</div>
+      </div></div>
+      <div class="card rise mb-4"><div class="card-body p-4">
         <h4 class="mb-1">Daily target</h4><p class="small text-body-secondary">Reminders come at 1 pm and 6 pm while the app is open.</p>
         <div class="d-flex flex-wrap align-items-center gap-2"><input type="number" min="1" max="100" class="form-control form-control-sm target-in" id="target-in" value="${st.target.target}" aria-label="Applications a day"><span class="small">applications a day</span>
           <button class="btn btn-sm btn-ink" data-action="save-target">Save</button><button class="btn btn-sm btn-outline-secondary" data-action="test-reminder">${bi("bell")} Test</button></div>
@@ -1066,6 +1109,7 @@ function renderSettings() {
       </div></div></div>
     </div>`;
   wireSettings();
+  drawBudget();
 }
 
 function wireSettings() {
@@ -1201,6 +1245,25 @@ async function runInsights() {
   btn.disabled = false;
 }
 
+async function drawBudget(b) {
+  const box = $("#budget-box");
+  if (!box) return;
+  try { b = b || await api("/api/ai/budget"); } catch (e) { box.textContent = e.message; return; }
+  box.innerHTML = `<div class="d-flex flex-wrap align-items-center gap-2 mb-2"><span class="small">Monthly limit $</span>
+      <input type="number" min="0" max="10000" step="10" class="form-control form-control-sm target-in" id="budget-limit" value="${b.limit}" aria-label="Monthly AI spend limit in dollars">
+      <button class="btn btn-sm btn-ink" data-action="budget-save">Save</button>
+      <span class="small ${b.over ? "text-danger" : "text-body-secondary"}">This month: $${b.spent.toFixed(2)}${b.limit ? ` of $${b.limit}` : ""}${b.over ? " · paid models paused" : ""}</span></div>
+    <div class="d-flex flex-wrap align-items-center gap-2"><span class="small">Job screening</span>
+      <select class="form-select form-select-sm w-auto" id="screen-mode" aria-label="How Claude screens jobs">
+        <option value="fast" ${b.mode === "fast" ? "selected" : ""}>Fast: results in minutes</option>
+        <option value="saver" ${b.mode === "saver" ? "selected" : ""}>Saver: half price, can take up to an hour</option></select></div>`;
+  $("#screen-mode").onchange = async e => { try { await drawBudget(await api("/api/ai/budget", { method: "PUT", json: { mode: e.target.value } })); toast("Saved.", 1500); } catch (err) { toast(err.message, 5000); } };
+}
+async function saveBudget() {
+  try { await drawBudget(await api("/api/ai/budget", { method: "PUT", json: { limit: Number($("#budget-limit").value) } })); toast("Saved.", 1500); }
+  catch (e) { toast(e.message, 5000); }
+}
+
 async function saveTarget() {
   try {
     S.state.target = await api("/api/settings/target", { method: "PUT", json: { target: Number($("#target-in").value) } });
@@ -1274,7 +1337,7 @@ async function renderOutreach() {
           <button class="btn btn-sm btn-ink" data-act="batch-open" title="Write to many contacts, review every draft, then send them with one click">${bi("send-check")} Batch email</button></div>
         <div class="d-flex flex-wrap gap-2 mb-2">
           <div class="input-group input-group-sm flex-grow-1 w-auto"><span class="input-group-text">${bi("search")}</span><input type="search" class="form-control" id="or-q" placeholder="Search name, email, company, role…" value="${esc(S.orQ || "")}"></div>
-          <select class="form-select form-select-sm w-auto" id="or-show" aria-label="Show"><option value="all">All</option><option value="email">With email</option><option value="unsent">Not sent yet</option><option value="sent">Sent</option></select></div>
+          <select class="form-select form-select-sm w-auto" id="or-show" aria-label="Show"><option value="all">All</option><option value="new">New</option><option value="drafted">Drafted</option><option value="unsent">Not sent yet</option><option value="sent">Sent</option><option value="replied">Replied</option></select></div>
         <div id="or-list" class="vstack gap-2 or-list"></div>
       </div></div></div>
     </div>`;
@@ -1306,10 +1369,18 @@ async function addShots(files) {
 
 function drawContacts() {
   const all = S.orContacts || [], q = (S.orQ || "").trim().toLowerCase(), show = $("#or-show")?.value || "all";
+  const stage = c => c.replied_at ? "replied" : c.sent_at ? "sent" : c.draft_body ? "drafted" : "new";
   const list = all.filter(c => (!q || [c.name, c.email, c.title, c.company, c.job_role, c.location, c.notes].join(" ").toLowerCase().includes(q))
-    && (show === "all" || (show === "email" && c.email) || (show === "unsent" && c.email && !c.sent_at) || (show === "sent" && c.sent_at)));
-  $("#or-count").textContent = all.length ? (list.length === all.length ? `${all.length} saved` : `${list.length} of ${all.length}`) : "";
-  $("#or-list").innerHTML = list.length ? list.map(c => `<div class="prov" data-cid="${esc(c.id)}">
+    && (show === "all" || (show === "unsent" && c.email && !c.sent_at) || stage(c) === show));
+  $("#or-count").textContent = all.length ? (list.length === all.length ? `${all.length} in the queue` : `${list.length} of ${all.length}`) : "";
+  const SRC = { posting: "From a posting", screenshot: "From a screenshot", pasted: "From pasted text", manual: "Added by you" };
+  let lastCompany = null;
+  $("#or-list").innerHTML = list.length ? list.slice().sort((a, b) => (a.company || "").localeCompare(b.company || "") ||
+      (b.found_at || b.added || "").localeCompare(a.found_at || a.added || "")).map(c => {
+    const head = (c.company || "") !== lastCompany ? `<div class="or-company">${esc(c.company || "No company")}</div>` : "";
+    lastCompany = c.company || "";
+    return `${head}<div class="prov" data-cid="${esc(c.id)}">
+      <div class="small text-body-secondary mb-1 d-flex flex-wrap gap-2">${esc(SRC[c.source] || "Saved")}${c.found_at ? ` · found ${fmtDate(c.found_at)}` : ""}${safeUrl(c.job_url) ? ` · <a href="${esc(safeUrl(c.job_url))}" target="_blank" rel="noopener noreferrer">posting ${bi("box-arrow-up-right")}</a>` : ""}<span class="ms-auto">${stage(c)}</span></div>
       <div class="row g-1">
         <div class="col-sm-4"><input class="form-control form-control-sm" data-k="name" value="${esc(c.name)}" placeholder="Name"></div>
         <div class="col-sm-8"><input class="form-control form-control-sm" data-k="email" value="${esc(c.email)}" placeholder="Email (from the screenshot)"></div>
@@ -1319,11 +1390,12 @@ function drawContacts() {
         <div class="col-12"><input class="form-control form-control-sm" data-k="notes" value="${esc(c.notes)}" placeholder="Notes (e.g. subject line they asked for)"></div>
       </div>
       <div class="d-flex flex-wrap gap-2 mt-2 align-items-center">
-        <button class="btn btn-sm btn-ink" data-action="or-draft">${bi("stars")} Draft email</button>
+        <button class="btn btn-sm btn-ink" data-action="or-draft">${bi("pencil-square")} Draft email</button>
         <button class="btn btn-sm btn-outline-secondary" data-action="or-track">${bi("kanban")} Add to tracker</button>
         ${c.sent_at ? `<span class="badge rounded-pill text-bg-success">sent ${fmtDate(c.sent_at)} · counted</span>` : `<button class="btn btn-sm btn-outline-secondary" data-action="or-marksent" title="Sent it from your own email app? This files it as an application.">${bi("check2-circle")} Mark as sent</button>`}
+        ${c.sent_at && !c.replied_at ? `<button class="btn btn-sm btn-outline-secondary" data-action="or-replied">${bi("reply")} Mark replied</button>` : ""}
         <button class="btn btn-sm btn-link link-danger ms-auto p-0" data-action="or-del">${bi("trash")} Remove</button></div>
-    </div>`).join("") : `<div class="text-body-secondary small py-4 text-center">${all.length ? "Nothing matches the search." : "No contacts yet. Add screenshots or text on the left, or press Find in job postings."}</div>`;
+    </div>`; }).join("") : `<div class="text-body-secondary small py-4 text-center">${all.length ? "Nothing matches the search." : "No contacts yet. Find jobs, then Find cold emails, or add screenshots or text on the left."}</div>`;
 }
 
 let orSaveTimer;
@@ -1351,7 +1423,7 @@ async function orDraft(el) {
     const r = await api("/api/ai/outreach-email", { method: "POST", json: { contact: c } });
     openCompose({ to: c.email, text: r.text, contactId: c.id, jobId: Number(c.job_id) || null, resumeId: r.resume_id });
   } catch (e) { toast(e.message, 9000); }
-  el.disabled = false; el.innerHTML = `${bi("stars")} Draft email`;
+  el.disabled = false; el.innerHTML = `${bi("pencil-square")} Draft email`;
 }
 
 // One by one: draft for the next unsent contact, show it, wait for Send / Skip / Stop. Every send is still a click.
@@ -1458,7 +1530,7 @@ function openCoverLetter(id) {
         <div id="cl-attached" class="d-flex flex-wrap gap-2 mt-2"></div></div>
       <div class="col-md-6"><select class="form-select form-select-sm" id="cl-tone" aria-label="Tone"><option>warm and professional</option><option>confident and concise</option><option>formal</option><option>enthusiastic</option></select></div>
     </div>
-    <div class="d-flex gap-2 mt-3"><button class="btn btn-sm btn-ink" data-action="cl-make" data-id="${j.id || ""}">${bi("stars")} Write it</button><span class="small text-body-secondary align-self-center" id="cl-status"></span></div>
+    <div class="d-flex gap-2 mt-3"><button class="btn btn-sm btn-ink" data-action="cl-make" data-id="${j.id || ""}">${bi("pencil-square")} Write it</button><span class="small text-body-secondary align-self-center" id="cl-status"></span></div>
     <div id="cl-out" class="mt-3"></div>`;
   S.clExtra = [];
   $("#cl-files").addEventListener("change", addContextFiles);
@@ -1646,7 +1718,7 @@ document.addEventListener("click", async e => {
   switch (el.dataset.action) {
     case "select": return selectJob(id);
     case "refresh": return startRefresh();
-    case "find-mode": return setFindMode(el.dataset.mode);
+    case "find-cold": return findCold();
     case "status": return setStatus(id, el.dataset.status);
     case "upload": return uploadResume();
     case "save-profile": return saveProfile();
@@ -1690,7 +1762,8 @@ document.addEventListener("click", async e => {
     case "mail-disconnect": if (await ask("Disconnect Gmail?", "The app password is removed from this PC.", "Disconnect", true)) { S.state.mail = await api("/api/mail/settings", { method: "DELETE" }); renderSettings(); } return;
     case "or-extract": return orExtract();
     case "or-unshot": S.orShots.splice(Number(el.dataset.i), 1); return addShots([]);
-    case "or-add": S.orContacts.unshift({ id: Math.random().toString(16).slice(2, 12), name: "", email: "", title: "", company: "", job_role: "", notes: "" }); saveContactsSoon(); return drawContacts();
+    case "or-add": S.orContacts.unshift({ id: Math.random().toString(16).slice(2, 12), name: "", email: "", title: "", company: "", job_role: "", notes: "", source: "manual", found_at: new Date().toISOString() }); saveContactsSoon(); return drawContacts();
+    case "or-replied": { const c = contactOf(el); c.replied_at = new Date().toISOString(); saveContactsSoon(); return drawContacts(); }
     case "or-del": S.orContacts = S.orContacts.filter(c => c !== contactOf(el)); saveContactsSoon(); return drawContacts();
     case "or-draft": return orDraft(el);
     case "or-postings": try { const r = await api("/api/outreach/from-postings", { method: "POST" }); S.orContacts = r.contacts; drawContacts(); toast(r.added ? `Added ${r.added} contact(s) from job postings` : "No new contacts in the postings.", 3500); } catch (e) { toast(e.message, 7000); } return;
@@ -1699,6 +1772,7 @@ document.addEventListener("click", async e => {
     case "ce-copy": try { await navigator.clipboard.writeText($("#ce-text").value); toast("Copied", 1500); } catch { toast("Couldn't copy"); } return;
     case "ce-mail": return mailtoFrom($("#ce-text").value, S.coldTo);
     case "save-target": return saveTarget();
+    case "budget-save": return saveBudget();
     case "test-reminder": try { await api("/api/notify/test", { method: "POST" }); toast("Sent - check the corner of your screen.", 3000); } catch (e) { toast(e.message, 7000); } return;
     case "prov-open": case "prov-save": case "prov-remove": case "prov-up": return providerAction(el, el.dataset.action);
     case "cover-letter": return openCoverLetter(id);
@@ -1729,7 +1803,7 @@ document.addEventListener("click", async e => {
     case "assess":
       el.disabled = true; el.innerHTML = `${bi("arrow-repeat", "spin")} Asking the AI…`;
       try { const j = await api(`/api/jobs/${el.dataset.id}/assess`, { method: "POST" }); mergeJob(j); refreshViewsAfterChange(j.id); toast("AI check updated.", 2500); }
-      catch (err) { toast(err.message, 7000); el.disabled = false; el.innerHTML = `${bi("stars")} Ask AI again`; }
+      catch (err) { toast(err.message, 7000); el.disabled = false; el.innerHTML = `${bi("search")} Ask AI again`; }
       return;
     case "save-details":
       try {

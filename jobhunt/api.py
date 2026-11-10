@@ -554,6 +554,7 @@ class Preferences(BaseModel):
     include_internships: Optional[bool] = None
     max_years: Optional[int] = None
     about: Optional[str] = None
+    regions: Optional[list[str]] = None
 
 
 @app.put("/api/profile")
@@ -591,20 +592,6 @@ def _start_refresh_thread():
             pass                      # recorded in PROGRESS and the runs table
     refresh.PROGRESS.update(running=True, phase="Starting", error=None, result=None)
     threading.Thread(target=work, daemon=True, name="refresh").start()
-
-
-def maybe_auto_refresh(hours):
-    """On startup: if the last good refresh is older than `hours`, start one so the list is current."""
-    if not hours or not db.resumes() or refresh.PROGRESS.snapshot()["running"]:
-        return
-    last = db.last_run()
-    if last and last.get("finished"):
-        if datetime.now(timezone.utc) - datetime.fromisoformat(last["finished"]) < timedelta(hours=hours):
-            return
-    try:
-        _start_refresh_thread()
-    except Exception:
-        pass
 
 
 # ---------------------------------------------------------------- AI providers, cover letters, coach
@@ -657,10 +644,39 @@ class TaskModel(BaseModel):
     model: str = ""
 
 
+TASK_PICKERS = ("dashboard", "email", "coach", "cover_letter", "interview", "cleanup", "planning")
+
+
+class Budget(BaseModel):
+    limit: Optional[float] = None
+    mode: Optional[str] = None
+
+
+@app.get("/api/ai/budget")
+def ai_budget():
+    """This month's AI spend against your limit, and how job screening runs."""
+    return {"limit": llm.monthly_limit(), "spent": round(db.month_spend(), 4), "over": llm.over_limit(),
+            "mode": db.get_setting("screen_mode") or "fast"}
+
+
+@app.put("/api/ai/budget")
+def ai_budget_save(body: Budget):
+    if body.limit is not None:
+        if not 0 <= body.limit <= 10000:
+            raise HTTPException(400, "Pick a limit between $0 (no limit) and $10,000.")
+        db.set_setting("ai_monthly_limit", body.limit)
+    if body.mode is not None:
+        if body.mode not in ("fast", "saver"):
+            raise HTTPException(400, "Mode is fast or saver.")
+        db.set_setting("screen_mode", body.mode)
+    return ai_budget()
+
+
 @app.put("/api/ai/task")
 def ai_task(body: TaskModel):
-    """Which model one area of the app uses: the Dashboard's analysis, or Cold email."""
-    if body.task not in ("dashboard", "email"):
+    """Which model one area of the app uses. Any ready provider works for any task, free and local ones included
+    (job screening has its own picker, which leaves local models out)."""
+    if body.task not in TASK_PICKERS:
         raise HTTPException(404, "Unknown task")
     tasks = db.get_setting("llm_tasks") or {}
     if body.provider:
@@ -777,6 +793,7 @@ class ProviderOrder(BaseModel):
 @app.put("/api/ai/order")
 def ai_order(body: ProviderOrder):
     db.set_setting("llm_order", [p for p in body.order if llm.known(p)])
+    db.set_setting("llm_order_v4", True)        # an order you set yourself is kept as it is
     return llm.status()
 
 
@@ -1523,7 +1540,8 @@ def extract_contacts(body: ExtractRequest):
         rows.append(row)
     have = {(r["email"].lower(), r["company"].lower()) for r in db.contacts()}
     import uuid
-    db.save_contacts([r | {"id": uuid.uuid4().hex[:10], "added": db.now_iso()} for r in rows
+    db.save_contacts([r | {"id": uuid.uuid4().hex[:10], "added": db.now_iso(), "found_at": db.now_iso(),
+                           "source": "screenshot" if body.images else "pasted"} for r in rows
                       if (r["email"].lower(), r["company"].lower()) not in have or not r["email"]])
     return {"found": len(rows), "provider": used, "contacts": db.contacts()}
 
@@ -1539,7 +1557,7 @@ class OutreachEdit(BaseModel):
 
 @app.put("/api/outreach")
 def outreach_save(body: OutreachEdit):
-    db.replace_contacts([c for c in body.contacts[:500] if c.get("id")])
+    db.replace_contacts([c for c in body.contacts[:db.CONTACT_LIMIT] if c.get("id")])
     return {"contacts": db.contacts()}
 
 
@@ -1679,21 +1697,5 @@ def outreach_email(body: OutreachDraft):
 @app.post("/api/outreach/from-postings")
 def outreach_from_postings():
     """Collect every hiring email printed in the job postings JobQuest.AI has found (never guessed addresses)."""
-    import uuid
-    have = {c["email"].lower() for c in db.contacts() if c["email"]}
-    fresh = []
-    for r in db.list_jobs():
-        if r["status"] == "hidden":
-            continue
-        job = db.public_job(r)
-        for c in job["contacts"]:
-            email = (c.get("email") or "").strip()
-            if not email or email.lower() in have:
-                continue
-            have.add(email.lower())
-            fresh.append({"id": uuid.uuid4().hex[:10], "name": c.get("name") or "", "email": email,
-                          "title": c.get("role") or "", "company": job["company"], "job_role": job["title"],
-                          "location": job["location"] or "", "notes": f"From the posting: {job['url']}",
-                          "job_id": str(job["id"]), "added": db.now_iso()})
-    db.save_contacts(fresh)
-    return {"added": len(fresh), "contacts": db.contacts()}
+    added = db.collect_posting_contacts()
+    return {"added": added, "contacts": db.contacts()}

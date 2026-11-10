@@ -43,7 +43,7 @@ function drawSpec(c, id, store) {
   const round = ROUND_CHARTS.includes(t), line = t === "line" || t === "area", stacked = t === "stacked_bar";
   const series = c.series || [{ label: niceName(c.metric || ""), values: c.values }];
   const datasets = series.map((s, i) => {
-    const hue = C[i % C.length];
+    const hue = series.length === 1 ? cssVar("--jh-ink") : C[i % C.length];   // one series: the accent; several: told apart
     if (round) return { data: s.values, backgroundColor: C, borderColor: surface, borderWidth: 2 };
     if (t === "radar") return { label: s.label, data: s.values, borderColor: hue, backgroundColor: hue + "33", borderWidth: 2, pointRadius: 2 };
     if (line) return { label: s.label, data: s.values, borderColor: hue, backgroundColor: hue + "33", fill: t === "area", borderWidth: 2, tension: .3, pointRadius: 2 };

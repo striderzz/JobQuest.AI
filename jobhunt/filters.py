@@ -91,6 +91,48 @@ def years_required(text):
     return max(found) if found else None
 
 
+# Regions you can add in Profile. A job there is kept only when its posting offers visa sponsorship or relocation.
+REGIONS = {
+    "gulf": ("Gulf", r"\buae\b|united arab emirates|dubai|abu dhabi|sharjah|saudi|riyadh|jeddah|dammam|qatar|doha|"
+                     r"\boman\b|muscat|kuwait|bahrain|manama"),
+    "sea": ("Singapore, Thailand, Malaysia", r"singapore|thailand|bangkok|malaysia|kuala lumpur|penang|cyberjaya"),
+    "anglo": ("US, UK, Canada, Australia, NZ, Ireland",
+              r"united states|\busa\b|\bu\.s\.|new york|san francisco|seattle|austin|boston|chicago|mountain view|"
+              r"sunnyvale|san jose|los angeles|\bnyc\b|united kingdom|\buk\b|london|manchester|edinburgh|cambridge, uk|"
+              r"canada|toronto|vancouver|montreal|ottawa|australia|sydney|melbourne|brisbane|new zealand|auckland|"
+              r"wellington|ireland|dublin"),
+    "europe": ("Europe", r"germany|berlin|munich|hamburg|frankfurt|netherlands|amsterdam|rotterdam|france|paris|spain|"
+                         r"madrid|barcelona|poland|warsaw|krakow|sweden|stockholm|switzerland|zurich|geneva|portugal|"
+                         r"lisbon|denmark|copenhagen|finland|helsinki|belgium|brussels|austria|vienna|italy|milan|"
+                         r"czech|prague|estonia|tallinn|norway|oslo|luxembourg"),
+}
+REGION_RX = {k: re.compile(v[1], re.I) for k, v in REGIONS.items()}
+SPONSOR = re.compile(r"visa sponsorship|(?:will|can|we|happy to|able to) sponsor|sponsorship (?:is )?(?:available|provided|offered)|"
+                     r"relocation (?:support|assistance|package|bonus|allowance)|relocat(?:e|ion) to|help (?:you )?relocate|"
+                     r"work (?:permit|visa) (?:support|sponsorship|assistance)|blue card|skilled worker visa|"
+                     r"employment pass|h-?1b (?:sponsorship|transfer)|visa (?:support|assistance)", re.I)
+NO_SPONSOR = re.compile(r"(?:not|unable to|cannot|can't|won't|will not|do not|does not|don't) (?:be able to )?(?:provide |offer )?"
+                        r"(?:visa |immigration )?sponsor|no (?:visa |immigration )?sponsorship|without (?:the need for )?(?:visa )?sponsorship|"
+                        r"must (?:already )?(?:have|hold|possess) (?:the |a )?(?:right|authori[sz]ation) to work", re.I)
+
+
+def region_of(location, regions):
+    """Which of your chosen regions a non-India job is in, or None."""
+    for key in regions or ():
+        if key in REGION_RX and REGION_RX[key].search(location or ""):
+            return key
+    return None
+
+
+def sponsors(text):
+    """The posting offers visa sponsorship or relocation, and doesn't say it can't sponsor."""
+    return bool(SPONSOR.search(text or "")) and not NO_SPONSOR.search(text or "")
+
+
+def is_abroad(remote):
+    return (remote or "").startswith("Abroad")
+
+
 def classify_location(location, title=""):
     """India only. Returns '' for an on-site/hybrid job in India, 'India' for remote-within-India, else None.
 

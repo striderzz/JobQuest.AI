@@ -80,7 +80,7 @@ function batchStep1() {
     <input class="form-control form-control-sm mb-2" id="b-subj" value="${esc(S.batch.subject)}" aria-label="Subject template" placeholder="Subject">
     <textarea class="form-control form-control-sm letter" id="b-body" rows="7" aria-label="Message template">${esc(S.batch.body)}</textarea>
     <div class="form-text">Fields you can use: ${esc(MERGE_HELP)}</div>
-    <div class="d-flex flex-wrap gap-2 mt-3"><button class="btn btn-sm btn-ink" data-act="batch-fill">${bi("input-cursor-text")} Fill template</button><button class="btn btn-sm btn-outline-secondary" data-act="batch-ai">${bi("stars")} Write each with AI</button><span class="small text-body-secondary align-self-center" id="b-status"></span></div>`
+    <div class="d-flex flex-wrap gap-2 mt-3"><button class="btn btn-sm btn-ink" data-act="batch-fill">${bi("input-cursor-text")} Fill template</button><button class="btn btn-sm btn-outline-secondary" data-act="batch-ai">${bi("pencil-square")} Write each with AI</button><span class="small text-body-secondary align-self-center" id="b-status"></span></div>`
     : `<div class="text-body-secondary py-3">No unsent contacts with an email yet.</div>`}`;
   bootstrap.Modal.getOrCreateInstance($("#ai-modal")).show();
 }

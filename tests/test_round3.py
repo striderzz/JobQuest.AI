@@ -1030,5 +1030,24 @@ class AnyChart(unittest.TestCase):
         self.assertIsNone(stats.compare())
 
 
+class ClickOnlySearch(unittest.TestCase):
+    """Searches start only from the Find jobs button (POST /api/refresh), never on startup or a timer."""
+
+    def test_no_automatic_search_paths(self):
+        import inspect
+        from jobhunt import cli, desktop
+        self.assertFalse(hasattr(api, "maybe_auto_refresh"))
+        for fn in (desktop.main, desktop._background, cli.serve):
+            src = inspect.getsource(fn)
+            self.assertNotIn("refresh.run", src)
+            self.assertNotIn("_start_refresh_thread", src)
+
+    def test_installer_schedules_no_search(self):
+        from pathlib import Path
+        iss = (Path(api.__file__).resolve().parents[1] / "packaging" / "installer.iss").read_text(encoding="utf-8")
+        self.assertNotIn("/Create", iss)
+        self.assertIn('/Delete /F /TN ""JobQuest.AI search 09-00""', iss)
+
+
 if __name__ == "__main__":
     unittest.main()

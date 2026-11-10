@@ -38,18 +38,17 @@ def open_window(url):
                              "--no-default-browser-check", "--window-size=1440,920", "--disable-sync"])
 
 
-REMINDER_HOURS = (13, 18)       # local time; the scheduled task covers 09:00 and 21:00
+REMINDER_HOURS = (13, 18)       # local time
 
 
 def _background(cfg):
-    """While the app is open: keep jobs fresh (every `auto_refresh_hours`) and nudge toward the daily target."""
+    """While the app is open: cloud sync and nudges toward the daily target. Searches never start on their own;
+    they run only when you click Find jobs or Find cold emails."""
     from datetime import date, datetime
-    from . import api, db, notify
-    hours = cfg["server"].get("auto_refresh_hours", 12)
+    from . import db, notify
     while True:
         time.sleep(600)
         try:
-            api.maybe_auto_refresh(hours)
             _maybe_cloud_sync()
             now = datetime.now()
             key = f"{date.today().isoformat()}-{now.hour}"
@@ -150,7 +149,6 @@ def main():
         return 1
     print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} JobQuest.AI started on {url}")
     _daily_backup()
-    api.maybe_auto_refresh(cfg["server"].get("auto_refresh_hours", 12))
 
     threading.Thread(target=_background, args=(cfg,), daemon=True, name="reminders").start()
     threading.Thread(target=_maybe_cloud_sync, args=(True,), daemon=True, name="cloud-sync").start()    # opening the app syncs at once

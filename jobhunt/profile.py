@@ -9,7 +9,7 @@ from . import resume as R
 from .skills import find_skills
 
 DEFAULTS = {"current_city": "", "phone": "", "preferred_cities": [], "roles": ["SDE", "ML"],
-            "include_internships": True, "about": "", "max_years": 2}
+            "include_internships": True, "about": "", "max_years": 2, "regions": []}
 
 
 def preferences():
@@ -24,6 +24,8 @@ def save_preferences(update):
         if k in update:
             p[k] = update[k]
     p["roles"] = [r for r in p["roles"] if r in ("SDE", "ML")] or ["SDE", "ML"]
+    from .filters import REGIONS
+    p["regions"] = [r for r in p.get("regions") or [] if r in REGIONS]
     db.set_setting("profile", p)
     return p
 

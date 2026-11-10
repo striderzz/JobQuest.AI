@@ -78,9 +78,11 @@ RESUME_SYSTEM = ("You extract a structured profile from a resume. Use only what 
 JOB_SYSTEM = (
     "You screen job postings for one candidate looking for entry-level tech jobs in India. Be strict and factual: use "
     "only the posting text and the candidate profile, never assume. The candidate wants SDE and/or ML roles with "
-    "under 3 years of required experience, located in India.\n"
+    "under 3 years of required experience, located in India (a role abroad counts only when the posting offers visa "
+    "sponsorship or relocation; set in_india false for it).\n"
     "Scoring: weigh the posting's must-have skills and level against the candidate's skills, projects and experience. "
-    "A role demanding 3+ years (or more than the candidate block accepts), or not in India, is never a fit.\n\n")
+    "A role demanding 3+ years (or more than the candidate block accepts) is never a fit, nor is a role abroad without "
+    "sponsorship.\n\n")
 
 
 # ---------------------------------------------------------------- client
@@ -199,14 +201,141 @@ class AI:
                                            {"role": "user", "content": text[:30000]}], 4000, feature="resume")
         return out.model_dump()
 
-    def assess(self, candidate_block, job, cache_key=None):
+    @staticmethod
+    def job_messages(candidate_block, job):
         user = (f"JOB\nTitle: {job['title']}\nCompany: {job['company']}\nLocation: {job['location']}\n"
                 f"Posted: {(job.get('posted') or '')[:10]}\n\n{(job.get('description') or '')[:7000]}")
-        out = self._parse(JobAssessment, [{"role": "system", "content": JOB_SYSTEM + candidate_block},
-                                          {"role": "user", "content": user}], 2500, cache_key)
+        return [{"role": "system", "content": JOB_SYSTEM + candidate_block}, {"role": "user", "content": user}]
+
+    @staticmethod
+    def tidy(out):
         d = out.model_dump()
         d["fit_score"] = max(0, min(100, int(d["fit_score"])))
         return d
+
+    def assess(self, candidate_block, job, cache_key=None):
+        return self.tidy(self._parse(JobAssessment, self.job_messages(candidate_block, job), 2500, cache_key))
+
+
+def strict_schema(model):
+    """A Pydantic model's JSON schema in the shape Claude's structured output wants: references inlined, every
+    property required and no extra properties."""
+    schema = model.model_json_schema()
+    defs = schema.pop("$defs", {})
+
+    def walk(node):
+        if isinstance(node, dict):
+            if "$ref" in node:
+                return walk(dict(defs[node["$ref"].split("/")[-1]]))
+            node = {k: walk(v) for k, v in node.items() if k not in ("title", "default")}
+            if node.get("type") == "object" and "properties" in node:
+                node["required"] = list(node["properties"])
+                node["additionalProperties"] = False
+            return node
+        if isinstance(node, list):
+            return [walk(n) for n in node]
+        return node
+    return walk(schema)
+
+
+class ClaudeAI(AI):
+    """Job screening and resume reading on Claude: structured output, the shared prompt cached, exact cost."""
+    provider = "anthropic"
+
+    def __init__(self, api_key, model, feature="screening", prices=None):
+        self.key, self.model, self.feature = api_key, model, feature
+        self.label = "Claude"
+        self.effort = None
+        self.price = (prices or {}).get(model)
+        self.tokens_in = self.tokens_out = 0
+        self.spent = 0.0
+        self.json_mode = False
+        self._lock = threading.Lock()
+
+    def check(self):
+        from . import claude
+        claude.list_models(self.key)
+
+    def cost(self, tokens_in=None, tokens_out=None):
+        return round(self.spent, 6) if self.price else None
+
+    def _parse(self, schema, messages, max_tokens, cache_key=None, feature=None):
+        from pydantic import ValidationError
+        from . import claude, llm
+        feature = feature or self.feature
+        msgs = [dict(m) for m in messages]
+        if self.json_mode:              # this model rejected the schema format: ask for JSON in words instead
+            msgs[0]["content"] += ("\n\nAnswer with one JSON object only, no prose, matching this JSON schema:\n"
+                                   + json.dumps(schema.model_json_schema()))
+        started = time.monotonic()
+        try:
+            text, used, u = claude.complete(msgs, self.key, self.model, feature, max_tokens,
+                                            schema=None if self.json_mode else strict_schema(schema))
+        except claude.ClaudeError as e:
+            msg = str(e)
+            if not self.json_mode and any(w in msg.lower() for w in ("schema", "output_config", "format")):
+                self.json_mode = True
+                return self._parse(schema, messages, max_tokens, cache_key, feature)
+            if "key" in msg.lower():
+                raise AIError("Claude rejected the API key. Check it on the Settings page.") from e
+            if "rate limit" in msg.lower() or "credit" in msg.lower():
+                raise AIError("Claude rate limit or quota reached (check your credit).") from e
+            raise AIError(msg) from e
+        cost = llm.cost_of(self.price, u["tokens_in"], u["tokens_out"], u["cache_read"], u["cache_write"]) or 0
+        with self._lock:
+            self.tokens_in += u["tokens_in"]
+            self.tokens_out += u["tokens_out"]
+            self.spent += cost
+        llm.record("anthropic", used, feature, u["tokens_in"], u["tokens_out"], started, u["cache_read"], u["cache_write"])
+        text = text[text.find("{"):text.rfind("}") + 1] if "{" in text else text
+        try:
+            return schema.model_validate_json(text)
+        except ValidationError as e:
+            raise AIError(f"Claude didn't return valid JSON: {str(e)[:200]}") from e
+
+
+def _assess_many(self, candidate_block, jobs, on_progress=None):
+    """Saver mode: every job in one Claude batch at half price. Returns {job id: assessment}; jobs that failed are
+    left out, so the caller can check them the normal way."""
+    from pydantic import ValidationError
+    from . import claude, llm
+    started = time.monotonic()
+    try:
+        raw = claude.batch([(f"job-{j['id']}", self.job_messages(candidate_block, j)) for j in jobs], self.key, self.model,
+                           self.feature, 2500, strict_schema(JobAssessment), on_progress)
+    except claude.ClaudeError as e:
+        raise AIError(str(e)) from e
+    from . import db
+    out, used = {}, {"in": 0, "out": 0, "cost": 0.0}
+    for j in jobs:
+        text, u = raw.get(f"job-{j['id']}", (None, None))
+        if not text:
+            continue
+        used["in"] += u["tokens_in"]
+        used["out"] += u["tokens_out"]
+        used["cost"] += (llm.cost_of(self.price, u["tokens_in"], u["tokens_out"], u["cache_read"], u["cache_write"]) or 0) / 2
+        try:
+            out[j["id"]] = self.tidy(JobAssessment.model_validate_json(text[text.find("{"):text.rfind("}") + 1]))
+        except ValidationError:
+            continue
+    with self._lock:
+        self.tokens_in += used["in"]
+        self.tokens_out += used["out"]
+        self.spent += used["cost"]
+    if used["in"]:                     # one usage row for the whole batch, at the batch's half price
+        db.record_usage("anthropic", self.model, "screening", used["in"], used["out"],
+                        round(used["cost"], 6) if self.price else None, round((time.monotonic() - started) * 1000))
+    return out
+
+
+ClaudeAI.assess_many = _assess_many
+
+
+def sig_for(client):
+    """Which verdicts are current. All Claude checks share one, so Opus re-checking a job that Haiku screened isn't
+    undone by the next search; other providers keep one per model, as before."""
+    from . import profile
+    return profile.signature("claude" if client.provider == "anthropic" else client.model)
 
 
 def _short(e):
@@ -218,22 +347,28 @@ def _short(e):
     return str(e)[:300]
 
 
-def rejected(assessment, max_years=2):
-    """True when the AI says the job breaks a hard rule: 3+ years required, not entry level, or not in India."""
+def rejected(assessment, max_years=2, abroad=False):
+    """True when the AI says the job breaks a hard rule: 3+ years required, not entry level, or not in India (a job
+    abroad was already checked for visa sponsorship, so `abroad` lets it through)."""
     # Stated years decide the level (2+ years still fits "under 3"); the AI's own judgement only fills the gap
     # when the posting gives no number.
     y = assessment.get("years_required")
     too_senior = (y > max_years) if y is not None else not assessment.get("entry_level_ok", True)
-    return too_senior or (not assessment.get("in_india", True)) or (not assessment.get("role_match", True))
+    return too_senior or (not abroad and not assessment.get("in_india", True)) or (not assessment.get("role_match", True))
 
 
-def client_for(pid, model=None, cfg=None):
-    """An AI client for one provider and model."""
+def client_for(pid, model=None, cfg=None, feature="screening"):
+    """An AI client for one provider and model. Claude picks its model per task when you haven't chosen one."""
     from . import llm
     cfg = cfg or settings.load_config()
     env = settings.read_env()
     label, base, _, var, *_ = llm.PROVIDERS[pid]
     a = cfg["ai"]
+    if pid == "anthropic":
+        from . import claude
+        key = env.get(var)
+        pinned = env.get(llm._model_var(pid))
+        return ClaudeAI(key, model or pinned or claude.task_model(feature, key), feature, a.get("prices"))
     effort = a.get("reasoning_effort") if pid == "openai" else None
     return AI(env.get(var) if var else "ollama", model or llm.model_for(pid, env), effort, a.get("prices"), base, label, pid)
 

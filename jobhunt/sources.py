@@ -148,11 +148,7 @@ def workday(entry, ctx):
     host, tenant, site = spec.split("/")
     base = f"https://{host}.myworkdayjobs.com"
     api = f"{base}/wday/cxs/{tenant}/{site}"
-    queries = ["intern", "graduate", "university", "associate"]
-    if "SDE" in ctx["roles"]:
-        queries += ["software engineer", "software developer"]
-    if "ML" in ctx["roles"]:
-        queries += ["machine learning", "data scientist", "AI engineer"]
+    queries = ats_queries(ctx)
     seen, out = set(), []
     for q in queries:
         for offset in (0, 20, 40):
@@ -185,11 +181,7 @@ def workday(entry, ctx):
 def amazon(ctx):
     # The search is literal keyword matching: "software development engineer" misses "Software Dev Engineer I",
     # so the short spellings Amazon uses in titles are queried too.
-    queries = ["intern", "university", "SDE"]
-    if "SDE" in ctx["roles"]:
-        queries += ["software development engineer", "software dev engineer", "software engineer"]
-    if "ML" in ctx["roles"]:
-        queries += ["machine learning", "applied scientist", "data scientist", "data engineer"]
+    queries = ["intern", "university", "SDE", "software dev engineer"] + ats_queries(ctx)
     seen, out = set(), []
     for q in queries:
         for offset in (0, 100, 200):
@@ -253,13 +245,15 @@ def himalayas(ctx):
 
 # ---------------------------------------------------------------- optional, keyed
 
+def ats_queries(ctx):
+    """Phrases for a company career site's search box (planned in queries.py; rules alone when no plan)."""
+    from . import queries
+    return list((ctx.get("queries") or queries.plan(ctx["roles"], use_ai=False))["ats"])
+
+
 def _aggregator_queries(ctx):
-    q = []
-    if "SDE" in ctx["roles"]:
-        q += ["software engineer fresher", "graduate software engineer", "software engineer intern"]
-    if "ML" in ctx["roles"]:
-        q += ["machine learning engineer fresher", "data scientist fresher", "AI engineer entry level"]
-    return q
+    from . import queries
+    return list((ctx.get("queries") or queries.plan(ctx["roles"], use_ai=False))["aggregator"])
 
 
 def adzuna(ctx):
@@ -269,7 +263,7 @@ def adzuna(ctx):
         params = urllib.parse.urlencode({"app_id": app_id, "app_key": key, "what": q, "results_per_page": 50,
                                          "max_days_old": ctx["days"], "sort_by": "date",
                                          "content-type": "application/json"})
-        d = fetch_json(f"https://api.adzuna.com/v1/api/jobs/in/search/1?{params}")
+        d = fetch_json(f"https://api.adzuna.com/v1/api/jobs/in/search/1?{params}", robots=False)
         for j in d.get("results", []):
             out.append(Job("Adzuna", (j.get("company") or {}).get("display_name", ""), clean_text(j.get("title")),
                            (j.get("location") or {}).get("display_name", "") + ", India", j.get("redirect_url", ""),
@@ -289,7 +283,7 @@ def jsearch(ctx):
                                          "date_posted": window})
         # JSearch moved to /search-v2 (Oct 2026); its jobs now sit under data.jobs instead of data
         d = fetch_json(f"https://jsearch.p.rapidapi.com/search-v2?{params}",
-                       headers={"x-rapidapi-key": key, "x-rapidapi-host": "jsearch.p.rapidapi.com"})
+                       headers={"x-rapidapi-key": key, "x-rapidapi-host": "jsearch.p.rapidapi.com"}, robots=False)
         data = d.get("data") or []
         for j in (data.get("jobs") or []) if isinstance(data, dict) else data:
             country = "India" if (j.get("job_country") or "").upper() in ("IN", "IND", "INDIA") else j.get("job_country")
@@ -310,7 +304,7 @@ def jooble(ctx):
     key = ctx["keys"].get("jooble_key")
     out = []
     for q in _aggregator_queries(ctx):
-        d = fetch_json(f"https://jooble.org/api/{key}", data={"keywords": q, "location": "India", "page": "1"})
+        d = fetch_json(f"https://jooble.org/api/{key}", data={"keywords": q, "location": "India", "page": "1"}, robots=False)
         for j in d.get("jobs", []):
             out.append(Job("Jooble", j.get("company", ""), clean_text(j.get("title")),
                            (j.get("location") or "") + ", India", j.get("link", ""), parse_time(j.get("updated")),
@@ -326,8 +320,12 @@ PRIORITY = {"Greenhouse": 0, "Lever": 0, "Ashby": 0, "SmartRecruiters": 0, "Work
 def plan(cfg, ctx):
     """[(label, callable)] for everything enabled in the config."""
     tasks = []
-    boards = cfg["companies"]
+    boards = {k: list(v) for k, v in cfg["companies"].items()}
     on = cfg["sources"]
+    from . import discovery                      # boards found for the companies in your tracker
+    for kind, extra in discovery.boards().items():
+        have = {split_name(e)[0] for e in boards.get(kind, [])}
+        boards.setdefault(kind, []).extend(e for e in extra if split_name(e)[0] not in have)
     for kind, fn in (("greenhouse", greenhouse), ("lever", lever), ("ashby", ashby),
                      ("smartrecruiters", smartrecruiters), ("workday", workday)):
         if on.get(kind, True):
@@ -336,6 +334,11 @@ def plan(cfg, ctx):
                        (lambda e=e, fn=fn: fn(e, ctx))) for e in boards.get(kind, [])]
     if on.get("amazon", True):
         tasks.append(("amazon.jobs", lambda: amazon(ctx)))
+    if on.get("portals", True):                 # big companies' own career sites (portals.py)
+        from . import portals
+        PRIORITY.update({name: 0 for name in ("Microsoft", "Qualcomm", "Netflix", "Oracle", "JPMorgan Chase", "Cisco",
+                                               "IBM", "Goldman Sachs", "Atlassian", "PhonePe", "Capgemini")})
+        tasks += portals.tasks(cfg, ctx)
     if on.get("himalayas", True):
         tasks.append(("himalayas", lambda: himalayas(ctx)))
     keys = ctx["keys"]

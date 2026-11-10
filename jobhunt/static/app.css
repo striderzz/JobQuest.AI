@@ -348,7 +348,7 @@ footer.container-xxl { padding-top: .75rem !important; padding-bottom: .75rem !i
 .shot img { height: 64px; width: auto; max-width: 120px; object-fit: cover; border-radius: .375rem; border: 1px solid var(--bs-border-color); }
 .shot .btn { position: absolute; top: -.45rem; right: -.45rem; color: var(--bs-body-color); background: var(--jh-card); border-radius: 50%; line-height: 1; }
 /* nav items never wrap: every tab stays one line and the same height */
-.nav-pills .nav-link, .target-pill, #last-run, #refresh-btn { white-space: nowrap; }
+.nav-pills .nav-link, .target-pill, #last-run, #refresh-btn, #cold-btn { white-space: nowrap; }
 .nav-pills .nav-link { padding: .38rem .65rem; }
 @media (min-width: 992px) and (max-width: 1280px) { .nav-pills .nav-link { padding: .38rem .5rem; font-size: .85rem; } #last-run { display: none; } }
 /* logo tile: a white skyscraper on black, the same in every theme */
@@ -393,11 +393,6 @@ footer.container-xxl { padding-top: .75rem !important; padding-bottom: .75rem !i
   .app-nav .nav-tools > *, .app-nav .nav-tools .btn-theme { width: 100%; justify-content: center; }
   .app-nav .nav-tools .dropdown { order: 2; }
   .app-nav .find-group { order: 3; display: flex; }
-  .app-nav .find-group #refresh-btn { flex: 1 1 auto; width: auto; }
-  .app-nav .find-group .dropdown-toggle-split { flex: 0 0 2.4rem; width: 2.4rem; }
-  .app-nav .find-group .dropdown-menu { position: absolute; top: auto !important; bottom: calc(100% + 6px) !important; left: 0 !important;
-    right: auto !important; transform: none !important; width: 100%; min-width: 0; }
-  .app-nav .find-group .dropdown-item { white-space: normal; }
   .app-nav #last-run { display: block !important; order: 4; text-align: center; margin: 0 !important; }
   .app-nav .target-pill span { display: inline !important; }
   
@@ -448,7 +443,6 @@ footer.container-xxl { padding-top: .75rem !important; padding-bottom: .75rem !i
 
 /* ---- oracle dashboard: insight carousel, chat dock, filters, progress % */
 .progress-pct { min-width: 3.2rem; text-align: right; font-variant-numeric: tabular-nums; }
-.find-group .dropdown-toggle-split { border-left: 1px solid rgba(255, 255, 255, .25); }
 .oracle-track { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: thin; padding-bottom: 4px; }
 .oracle-card { flex: 0 0 min(360px, 85%); scroll-snap-align: start; display: flex; gap: 12px; padding: 14px 16px;
   background: var(--jh-card); border: 1px solid var(--bs-border-color); border-left: 4px solid var(--jh-ink); border-radius: 8px; }
@@ -636,3 +630,13 @@ main#app { margin-top: 1.25rem !important; }
 .cal-c.l2 { background: color-mix(in srgb, var(--jh-ink) 55%, var(--jh-card)); }
 .cal-c.l3 { background: color-mix(in srgb, var(--jh-ink) 78%, var(--jh-card)); }
 .cal-c.l4 { background: var(--jh-ink); }
+
+/* contact queue: one heading per company */
+.or-company { margin: .9rem 0 .35rem; font-weight: 600; font-size: .92rem; }
+.or-company:first-child { margin-top: 0; }
+
+/* Settings: one model per task */
+.task-grid { display: grid; grid-template-columns: minmax(8rem, auto) 1fr; gap: 8px 12px; align-items: center; }
+.task-grid .form-select { max-width: 100%; }
+.task-grid .form-select.w-auto { width: 100% !important; min-width: 0; }   /* the long model names must not widen the page */
+@media (max-width: 575.98px) { .task-grid { grid-template-columns: minmax(0, 1fr); gap: 4px; } }

@@ -6,33 +6,51 @@ days = 14                     # keep postings first published in the last N days
 max_years = 2                 # entry level: postings asking for 3+ years are dropped
 roles = ["SDE", "ML"]         # ML also covers AI, data science and data engineering
 include_internships = true
+discover_per_search = 40       # each search looks for the job boards of this many tracker companies (0 = off)
 
 [ai]
 model = "gpt-6-luna"          # OpenAI's lowest-cost current text model; any chat model ID works
 reasoning_effort = "low"      # none | minimal | low | medium | high; dropped automatically if the model rejects it
-max_jobs_per_refresh = 150    # cap on AI job checks per refresh (each posting is checked once, then cached)
+max_jobs_per_refresh = 500    # cap on AI job checks per search (each posting is checked once, then cached)
+deep_check_jobs = 100        # with Claude: Haiku screens every job, then Opus re-checks this many of the best
 concurrency = 4
-compare_jobs = 30             # each extra model in a comparison reads this many of the best jobs
-# USD per 1M tokens (input, output), used only to show running cost. List prices: free tiers cost you less, and prices
+compare_jobs = 100            # each extra model you pick for job search reads this many of the best jobs
+monthly_limit_usd = 150       # paid AI pauses for the month at this spend; free and local models keep working (0 = no limit)
+# USD per 1M tokens (input, output[, cache read]), used to show running cost and enforce the limit. List prices: free tiers cost you less, and prices
 # change, so correct them here. A model that isn't listed shows "price unknown" rather than $0.
-prices = { "gpt-6-luna" = [0.10, 0.50], "gpt-6.1-sol" = [2.0, 10.0], "gpt-6-astra" = [10.0, 50.0], "gemini-2.5-flash" = [0.30, 2.50], "llama-3.3-70b-versatile" = [0.59, 0.79], "deepseek-chat" = [0.28, 0.42], "grok-4-fast" = [0.20, 0.50], "mistral-small-latest" = [0.10, 0.30] }
+prices = { "claude-opus-5-5" = [4.0, 20.0, 0.20], "claude-sonnet-5-5" = [2.0, 10.0, 0.10], "claude-haiku-5-5" = [0.10, 0.50, 0.01], "claude-opus-5" = [5.0, 25.0, 0.50], "claude-fable-5-2" = [8.0, 40.0, 0.20], "gpt-6-luna" = [0.10, 0.50], "gpt-6.1-sol" = [2.0, 10.0], "gpt-6-astra" = [10.0, 50.0], "gemini-2.5-flash" = [0.30, 2.50], "llama-3.3-70b-versatile" = [0.59, 0.79], "deepseek-chat" = [0.28, 0.42], "grok-4-fast" = [0.20, 0.50], "mistral-small-latest" = [0.10, 0.30] }
 
 [server]
 port = 8000
-auto_refresh_hours = 12      # opening the app starts a search if the last one is older than this
 
 [sources]
 # Turn whole sources on/off. Keyed sources switch on by themselves once a key is configured.
 greenhouse = true
 lever = true
 ashby = true
-smartrecruiters = true
+smartrecruiters = false        # off: api.smartrecruiters.com's robots.txt allows only LinkedIn's crawler
 workday = true
 amazon = true
 himalayas = false             # off: links go to Himalayas (behind a bot check), not the company, and many listings are low quality
 adzuna = true
 jsearch = true
 jooble = true
+portals = true                # big companies' own career sites: Microsoft, Netflix, Oracle, Cisco, IBM, JPMorgan, ...
+
+[portals]
+# Turn single company sites off here (all on by default). Google, Meta, Apple, Uber, Infosys, TCS and Flipkart
+# need a login or a browser, so they're shown as careers-page links instead.
+microsoft = true
+qualcomm = true
+netflix = true
+oracle = true
+jpmorgan = true
+cisco = true
+ibm = true
+goldman = true
+atlassian = true
+phonepe = true
+capgemini = true
 
 [companies]
 # Company boards with openings in India, all checked to respond on 2026-10-15.

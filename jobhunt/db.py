@@ -89,6 +89,13 @@ def conn():
         for col in ("source", "sha", "target_role"):           # resumes folder: original file, its hash, role tag
             if col not in have_r:
                 c.execute(f"ALTER TABLE resumes ADD COLUMN {col} TEXT DEFAULT ''")
+        have_c = {r["name"] for r in c.execute("PRAGMA table_info(outreach_contacts)")}
+        for col in ("source", "found_at", "job_url", "replied_at"):      # the contact queue (round 4)
+            if col not in have_c:
+                c.execute(f"ALTER TABLE outreach_contacts ADD COLUMN {col} TEXT DEFAULT ''")
+        c.execute("UPDATE outreach_contacts SET found_at=added WHERE COALESCE(found_at, '')=''")
+        c.execute("UPDATE outreach_contacts SET source=CASE WHEN COALESCE(job_id, '')!='' THEN 'posting' ELSE 'pasted' END "
+                  "WHERE COALESCE(source, '')=''")
         _move_old_settings(c)
         c.commit()
         _migrated = True
@@ -250,10 +257,11 @@ def set_salary(job_id, pay):
 
 
 def recheck_rejections(rule):
-    """Re-apply the reject rule to stored AI verdicts (no API calls) - used when the rule itself changes."""
+    """Re-apply the reject rule to stored AI verdicts (no API calls) - used when the rule itself changes.
+    rule(assessment, remote) where remote is the job's location kind ('', 'India' or 'Abroad: ...')."""
     with conn() as c:
-        for r in c.execute("SELECT id, ai_json FROM jobs WHERE ai_json IS NOT NULL").fetchall():
-            c.execute("UPDATE jobs SET ai_rejected=? WHERE id=?", (int(rule(json.loads(r["ai_json"]))), r["id"]))
+        for r in c.execute("SELECT id, ai_json, remote FROM jobs WHERE ai_json IS NOT NULL").fetchall():
+            c.execute("UPDATE jobs SET ai_rejected=? WHERE id=?", (int(rule(json.loads(r["ai_json"]), r["remote"] or "")), r["id"]))
 
 
 def jobs_for_ai(sig, limit):
@@ -491,6 +499,8 @@ def public_job(r, now=None, detail=False, verdicts=None):
         "salary_currency": r.get("salary_currency") or "", "salary_src": r.get("salary_src") or "",
         "salary": salary.label(r), "models": verdicts or [], "family": role_family(r["title"]),
     }
+    out["combined"], out["spread"] = combined(verdicts or [])
+    out["disagree"] = bool(out["spread"] is not None and out["spread"] >= 25)
     if detail:
         out["description"] = r["description"] or ""
     return out
@@ -543,6 +553,38 @@ def save_verdict(job_id, provider, model, sig, result, rejected):
                    json.dumps(result.get("reasons", [])), sig, now_iso()))
 
 
+WEIGHTS = {"anthropic": 1.0}          # every other provider counts 0.8
+
+
+def combined(verdicts, weights=None):
+    """One score from several models: each provider's latest verdict, weighted. Also how far apart they are."""
+    weights = weights or WEIGHTS
+    latest = {}
+    for v in sorted(verdicts, key=lambda v: v.get("at") or ""):
+        if v.get("score") is not None:
+            latest[v["provider"]] = v
+    if not latest:
+        return None, None
+    num = sum(v["score"] * weights.get(p, 0.8) for p, v in latest.items())
+    den = sum(weights.get(p, 0.8) for p in latest)
+    scores = [v["score"] for v in latest.values()]
+    return round(num / den, 1), (max(scores) - min(scores) if len(scores) > 1 else None)
+
+
+def combine_scores(sig):
+    """After a search: jobs judged by two or more providers get the weighted mean as their AI score."""
+    with conn() as c:
+        rows = c.execute("SELECT job_id, provider, score, at FROM job_verdicts WHERE sig=?", (sig,)).fetchall()
+        by_job = {}
+        for r in rows:
+            by_job.setdefault(r["job_id"], []).append(dict(r))
+        for job_id, vs in by_job.items():
+            if len({v["provider"] for v in vs}) > 1:
+                score, _ = combined(vs)
+                c.execute("UPDATE jobs SET ai_score=? WHERE id=?", (score, job_id))
+        _rescore(c)
+
+
 def verdicts_by_job():
     with conn() as c:
         rows = c.execute("SELECT * FROM job_verdicts ORDER BY provider, model").fetchall()
@@ -552,6 +594,14 @@ def verdicts_by_job():
             {"provider": r["provider"], "model": r["model"], "score": r["score"], "rejected": bool(r["rejected"]),
              "verdict": r["verdict"] or "", "reasons": json.loads(r["reasons_json"] or "[]"), "at": r["at"]})
     return out
+
+
+def month_spend():
+    """Dollars spent on AI this calendar month (local time), from the usage log."""
+    start = datetime.now().astimezone().replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    with conn() as c:
+        r = c.execute("SELECT COALESCE(SUM(cost), 0) usd FROM llm_usage WHERE at >= ?", (start.isoformat(timespec="seconds"),)).fetchone()
+    return float(r["usd"] or 0)
 
 
 def record_usage(provider, model, feature, tokens_in, tokens_out, cost, latency_ms):
@@ -630,7 +680,9 @@ def add_coach_message(cid, role, content, files=(), images=(), provider="", mode
 # ---------------------------------------------------------------- cold email contacts
 
 CONTACT_FIELDS = {"name": 200, "email": 200, "title": 200, "company": 200, "job_role": 200, "location": 200, "notes": 1000,
-                  "added": 40, "sent_at": 40, "job_id": 20, "draft_subject": 300, "draft_body": 20000, "status": 20, "error": 300}
+                  "added": 40, "sent_at": 40, "job_id": 20, "draft_subject": 300, "draft_body": 20000, "status": 20, "error": 300,
+                  "source": 20, "found_at": 40, "job_url": 500, "replied_at": 40}
+CONTACT_LIMIT = 2000            # the page saves the whole list, so it must always load all of them
 
 
 def _save_contact(c, row):
@@ -644,8 +696,33 @@ def _save_contact(c, row):
 
 
 def contacts():
+    """The contact queue, newest find first."""
     with conn() as c:
-        return [dict(r) for r in c.execute("SELECT * FROM outreach_contacts ORDER BY added DESC, rowid DESC LIMIT 500")]
+        return [dict(r) for r in c.execute("SELECT * FROM outreach_contacts ORDER BY COALESCE(NULLIF(found_at, ''), added) DESC, "
+                                           "rowid DESC LIMIT ?", (CONTACT_LIMIT,))]
+
+
+def collect_posting_contacts():
+    """Add every hiring email printed in a stored posting to the queue, once (never guessed addresses).
+    Returns how many were new."""
+    import uuid
+    have = {c["email"].lower() for c in contacts() if c["email"]}
+    fresh = []
+    for r in list_jobs():
+        if r["status"] == "hidden":
+            continue
+        job = public_job(r)
+        for ct in job["contacts"]:
+            email = (ct.get("email") or "").strip()
+            if not email or email.lower() in have:
+                continue
+            have.add(email.lower())
+            fresh.append({"id": uuid.uuid4().hex[:10], "name": ct.get("name") or "", "email": email,
+                          "title": ct.get("role") or "", "company": job["company"], "job_role": job["title"],
+                          "location": job["location"] or "", "notes": "", "job_id": str(job["id"]), "added": now_iso(),
+                          "source": "posting", "found_at": job.get("first_seen") or now_iso(), "job_url": job["url"] or ""})
+    save_contacts(fresh)
+    return len(fresh)
 
 
 def contact(cid):

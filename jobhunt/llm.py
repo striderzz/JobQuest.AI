@@ -1,8 +1,9 @@
 """One chat interface over many LLM providers.
 
-Every provider here speaks the OpenAI chat-completions protocol (natively or through its OpenAI-compatible endpoint),
-so one SDK covers them all and only the base URL, key and model differ. Keys live in ~/.jobhuntai/.env; which
-providers work and in what order to try them is kept in the settings table.
+Claude goes through the official Anthropic SDK (claude.py) for caching, effort levels and exact costs. Every other
+provider speaks the OpenAI chat-completions protocol (natively or through an OpenAI-compatible endpoint), so one SDK
+covers them and only the base URL, key and model differ. Default order: Claude, OpenAI, Gemini, then the free and
+other providers. Any task can be pointed at any provider, including free ones and local models.
 """
 import json
 import re
@@ -15,9 +16,9 @@ from . import db, settings
 
 # id: (label, base_url, default model, key env var, free tier?, model-name hint used when the default is gone, key page)
 PROVIDERS = {
+    "anthropic": ("Anthropic Claude", None, "claude-opus-5-5", "ANTHROPIC_API_KEY", False,
+                  "opus", "console.anthropic.com/settings/keys"),
     "openai": ("OpenAI", None, "gpt-6-luna", "OPENAI_API_KEY", False, "gpt", "platform.openai.com/api-keys"),
-    "anthropic": ("Anthropic Claude", "https://api.anthropic.com/v1/", "claude-haiku-5-5", "ANTHROPIC_API_KEY", False,
-                  "haiku", "console.anthropic.com/settings/keys"),
     "gemini": ("Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai/", "gemini-2.5-flash",
                "GEMINI_API_KEY", True, "flash", "aistudio.google.com/apikey"),
     "groq": ("Groq (Llama, fast)", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile", "GROQ_API_KEY", True,
@@ -127,10 +128,16 @@ def task_choice(task):
 
 
 def compare_choices():
+    """Extra models that also check the best jobs. Until you choose, OpenAI joins Claude when both have keys;
+    local models never screen jobs."""
     if force_choice():
         return []
     load_custom()
-    return [c for c in (db.get_setting("llm_compare") or []) if c.get("provider") in PROVIDERS]
+    saved = db.get_setting("llm_compare")
+    if saved is None:
+        env = settings.read_env()
+        saved = [{"provider": "openai"}] if env.get(PROVIDERS["openai"][3]) and env.get(PROVIDERS["anthropic"][3]) else []
+    return [c for c in saved if c.get("provider") in PROVIDERS and c.get("provider") != "ollama"]
 
 
 NOT_CHAT = re.compile(r"embed|tts|whisper|transcri|speech|image|imagen|dall|moderation|guard|rerank|ocr", re.I)
@@ -151,20 +158,43 @@ def check_chat_model(pid, model=""):
 
 
 def price_for(pid, model):
-    """USD per 1M tokens (input, output). Local models are free; None means the price isn't known."""
+    """USD per 1M tokens: (input, output) or (input, output, cache read). Local models are free; None means unknown."""
     if pid == "ollama":
         return (0, 0)
     return settings.load_config()["ai"]["prices"].get(model)
 
 
-def record(pid, model, feature, tokens_in, tokens_out, started):
+def cost_of(price, tokens_in, tokens_out, cache_read=0, cache_write=0):
+    """Dollars for one call. Cache reads cost about a tenth of input; writing the cache costs 1.25x input."""
+    if not price:
+        return None
+    read_price = price[2] if len(price) > 2 else price[0] * 0.1
+    fresh = max(0, tokens_in - cache_read - cache_write)
+    return round((fresh * price[0] + cache_write * price[0] * 1.25 + cache_read * read_price + tokens_out * price[1]) / 1_000_000, 6)
+
+
+def record(pid, model, feature, tokens_in, tokens_out, started, cache_read=0, cache_write=0):
     """Log one call for the usage dashboard. Logging must never break the call itself."""
     try:
-        price = price_for(pid, model)
-        cost = round((tokens_in * price[0] + tokens_out * price[1]) / 1_000_000, 6) if price else None
+        cost = cost_of(price_for(pid, model), tokens_in, tokens_out, cache_read, cache_write)
         db.record_usage(pid, model, feature, tokens_in, tokens_out, cost, round((time.monotonic() - started) * 1000))
     except Exception:
         pass
+
+
+def monthly_limit():
+    v = db.get_setting("ai_monthly_limit")
+    return float(v) if v not in (None, "") else float(settings.load_config()["ai"].get("monthly_limit_usd", 150))
+
+
+def over_limit():
+    """This month's paid AI spend has reached your limit. Free providers and local models keep working."""
+    limit = monthly_limit()
+    return limit > 0 and db.month_spend() >= limit
+
+
+def is_free(pid):
+    return pid == "ollama" or bool(PROVIDERS[pid][4])
 
 
 def _model_var(pid):
@@ -173,6 +203,11 @@ def _model_var(pid):
 
 def model_for(pid, env=None):
     env = env if env is not None else settings.read_env()
+    if pid == "anthropic" and not env.get(_model_var(pid)):
+        if not env.get(PROVIDERS[pid][3]):
+            return PROVIDERS[pid][2]
+        from . import claude
+        return claude.latest("opus", env[PROVIDERS[pid][3]])
     if pid == "openai":
         return env.get("OPENAI_MODEL") or settings.load_config()["ai"]["model"]
     if env.get(_model_var(pid)):
@@ -201,9 +236,16 @@ def ollama_models(timeout=1.0):
     return names
 
 
+FIRST = ("anthropic", "openai", "gemini")       # the order you asked for; the rest follow
+
+
 def order():
     load_custom()
     saved = [p for p in (db.get_setting("llm_order") or []) if p in PROVIDERS]
+    if saved and not db.get_setting("llm_order_v4"):   # once: put Claude, OpenAI, Gemini first in an older saved order
+        saved = list(FIRST) + [p for p in saved if p not in FIRST]
+        db.set_setting("llm_order", saved)
+        db.set_setting("llm_order_v4", True)
     return saved + [p for p in PROVIDERS if p not in saved]
 
 
@@ -239,8 +281,34 @@ def _short(e):
     return s(e)
 
 
+def default_model(pid, feature, env):
+    """The model a provider uses for this task when you haven't picked one: Claude picks per task (Haiku for bulk
+    checks, Opus for writing); the others use their saved model."""
+    if pid == "anthropic" and env.get(PROVIDERS[pid][3]) and not env.get(_model_var(pid)):
+        from . import claude
+        return claude.task_model(feature, env[PROVIDERS[pid][3]])
+    return model_for(pid, env)
+
+
+def _complete_claude(messages, max_tokens, env, model, feature):
+    from . import claude
+    env = env if env is not None else settings.read_env()
+    key = env.get(PROVIDERS["anthropic"][3])
+    if not key:
+        raise LLMError("No key saved for Anthropic Claude.")
+    started = time.monotonic()
+    try:
+        text, used, u = claude.complete(messages, key, model or default_model("anthropic", feature, env), feature, max_tokens)
+    except claude.ClaudeError as e:
+        raise LLMError(str(e)) from e
+    record("anthropic", used, feature, u["tokens_in"], u["tokens_out"], started, u["cache_read"], u["cache_write"])
+    return text
+
+
 def _complete(pid, messages, max_tokens, env=None, model=None, feature="chat"):
     import openai
+    if pid == "anthropic":
+        return _complete_claude(messages, max_tokens, env, model, feature)
     c = client(pid, env)
     model = model or model_for(pid, env)
     started = time.monotonic()
@@ -269,6 +337,9 @@ def _pick_model(pid, env):
     try:
         if pid == "ollama":
             names = ollama_models()
+        elif pid == "anthropic":
+            from . import claude
+            names = claude.list_models(env[PROVIDERS[pid][3]])
         else:
             names = sorted(m.id for m in client(pid, env).models.list())
     except Exception:
@@ -369,9 +440,14 @@ def chat(messages, max_tokens=1200, prefer=None, model=None, feature="chat"):
         if first in ready:
             ready.remove(first)
             ready.insert(0, first)
+    if over_limit():                                  # paid providers pause; free ones and local models still answer
+        ready = [p for p in ready if is_free(p)]
+        if not ready:
+            raise LLMError(f"You've reached this month's AI spend limit (${monthly_limit():g}). Raise it in Settings, "
+                           "or add a free provider such as Gemini, Groq or OpenRouter.")
     errors = []
     for pid in ready:
-        use = (wanted if pid == first else None) or model_for(pid, env)
+        use = (wanted if pid == first else None) or default_model(pid, feature, env)
         try:
             text = _complete(pid, messages, max_tokens, env, use, feature)
             return Reply.of(text, pid, use, first if first and pid != first else "")
@@ -394,6 +470,9 @@ def ping(pid, fresh=False):
         if pid == "ollama":
             with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=2) as r:
                 r.read()
+        elif pid == "anthropic":
+            from . import claude
+            claude.list_models(settings.read_env()[PROVIDERS[pid][3]], timeout=6)
         else:
             client(pid).with_options(timeout=6, max_retries=0).models.list()
         out = {"ok": True, "ms": round((time.monotonic() - started) * 1000), "error": ""}

@@ -29,13 +29,11 @@ def serve(port, open_browser=True):
         return
     import uvicorn
     from . import api
-    cfg = settings.load_config()
     api.app.state.allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
     api.app.state.token = vault.new_session()
     url += f"?k={api.app.state.token}"
     from .desktop import _daily_backup
     _daily_backup()
-    api.maybe_auto_refresh(cfg["server"].get("auto_refresh_hours", 12))
     if open_browser:
         threading.Thread(target=lambda: (time.sleep(1.5), webbrowser.open(url)), daemon=True).start()
     print(f"JobQuest.AI running at {url}  (close this window or press Ctrl+C to stop)")

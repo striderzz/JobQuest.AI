@@ -1,9 +1,9 @@
-﻿; Inno Setup script for JobQuest.AI. Build with build_installer.cmd (needs Inno Setup 6 and a built JobQuestAI.exe).
+; Inno Setup script for JobQuest.AI. Build with build_installer.cmd (needs Inno Setup 6 and a built JobQuestAI.exe).
 ; Installs per user (no admin prompt) into %LOCALAPPDATA%\Programs\JobQuest.AI with Start menu and optional Desktop
 ; shortcuts. Uninstalling removes the program but keeps your data in %USERPROFILE%\.jobhuntai.
 
 #define AppName "JobQuest.AI"
-#define AppVersion "3.2.2"
+#define AppVersion "4.0.0"
 #define AppExe "JobQuestAI.exe"
 
 [Setup]
@@ -34,7 +34,6 @@ CloseApplications=yes
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &Desktop shortcut"; GroupDescription: "Shortcuts:"
-Name: "dailysearch"; Description: "Search for new jobs automatically every 12 hours (09:00 and 21:00)"; GroupDescription: "Background:"; Flags: unchecked
 
 [Files]
 Source: "..\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
@@ -46,9 +45,9 @@ Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 
 [Run]
-; optional 12-hour search: a per-user scheduled task that runs the app's own "refresh" command
-Filename: "schtasks.exe"; Parameters: "/Create /F /TN ""JobQuest.AI search 09-00"" /SC DAILY /ST 09:00 /TR ""\""{app}\{#AppExe}\"" refresh --open-if-new"""; Flags: runhidden; Tasks: dailysearch
-Filename: "schtasks.exe"; Parameters: "/Create /F /TN ""JobQuest.AI search 21-00"" /SC DAILY /ST 21:00 /TR ""\""{app}\{#AppExe}\"" refresh --open-if-new"""; Flags: runhidden; Tasks: dailysearch
+; searches run only when you click: remove the timed searches older versions could schedule
+Filename: "schtasks.exe"; Parameters: "/Delete /F /TN ""JobQuest.AI search 09-00"""; Flags: runhidden
+Filename: "schtasks.exe"; Parameters: "/Delete /F /TN ""JobQuest.AI search 21-00"""; Flags: runhidden
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]

@@ -48,14 +48,9 @@
         <span id="last-run" class="small text-body-secondary me-1"></span>
         <div class="dropdown theme-dd"><button class="btn btn-outline-secondary btn-theme" type="button" data-bs-toggle="dropdown" data-bs-display="static" id="theme-btn" aria-expanded="false" aria-label="Choose a theme" title="Theme"></button>
           <ul class="dropdown-menu dropdown-menu-end" id="theme-menu"></ul></div>
-        <div class="btn-group find-group">
+        <div class="find-group d-flex gap-2">
+          <button class="btn btn-outline-secondary" type="button" data-action="find-cold" id="cold-btn"></button>
           <button class="btn btn-ink" type="button" data-action="refresh" id="refresh-btn"></button>
-          <button class="btn btn-ink dropdown-toggle dropdown-toggle-split" type="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false" aria-label="Search mode" id="find-mode-btn"></button>
-          <ul class="dropdown-menu dropdown-menu-end">
-            <li><h6 class="dropdown-header">Find…</h6></li>
-            <li><button class="dropdown-item" data-action="find-mode" data-mode="jobs">Job openings</button></li>
-            <li><button class="dropdown-item" data-action="find-mode" data-mode="cold">Cold emails<small class="d-block text-body-secondary">contacts printed in postings</small></button></li>
-          </ul>
         </div>
       </div>
 </header>

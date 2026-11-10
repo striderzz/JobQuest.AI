@@ -28,6 +28,7 @@ def select(raw, cfg, ctx, profiles, allow_unstated=False):
     now, days = ctx["now"], s["days"]
     stats = {"raw": len(raw)}
 
+    regions = ctx.get("regions") or []
     first = []
     for j in raw:
         kind = filters.role_kind(j.title)
@@ -35,7 +36,10 @@ def select(raw, cfg, ctx, profiles, allow_unstated=False):
             continue
         remote = filters.classify_location(j.location, j.title)
         if remote is None:
-            continue
+            region = filters.region_of(j.location, regions)
+            if region is None:
+                continue
+            remote = f"Abroad: {filters.REGIONS[region][0]}"       # kept only if it sponsors visas (checked below)
         if j.posted is None or (now - j.posted).days > days:
             continue
         j.kind, j.remote = kind, remote
@@ -46,6 +50,9 @@ def select(raw, cfg, ctx, profiles, allow_unstated=False):
     if needs:
         with cf.ThreadPoolExecutor(8) as ex:
             list(ex.map(_safe_detail, needs))
+
+    first = [j for j in first if not filters.is_abroad(j.remote) or filters.sponsors(f"{j.title} {j.description}")]
+    stats["abroad_with_sponsorship"] = sum(1 for j in first if filters.is_abroad(j.remote))
 
     best_degree = max((p.get("degree_level", 0) for p in profiles), default=0)
     kept = []

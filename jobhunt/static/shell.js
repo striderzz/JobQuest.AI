@@ -69,7 +69,7 @@ function taskPicker(task) {
   if (!s) return "";
   if (s.force) return `<span class="small text-body-secondary">${bi("lock")} ${esc(s.force.model)} for all tasks</span>`;
   const cur = s.tasks[task] || {};
-  return `<select class="form-select form-select-sm w-auto" data-task="${task}" aria-label="Model for this page"><option value="">Model: default (${esc(s.chat ? s.chat.model : "none")})</option>
+  return `<select class="form-select form-select-sm w-auto" data-task="${task}" aria-label="Model for this page"><option value="">${s.chat && s.chat.provider === "anthropic" ? "Default: best Claude model for this task" : `Model: default (${esc(s.chat ? s.chat.model : "none")})`}</option>
     ${liveModels().map(p => `<option value="${p.id}|${esc(p.model)}" ${cur.provider === p.id ? "selected" : ""}>${esc(modelLabel(p))}</option>`).join("")}</select>`;
 }
 
