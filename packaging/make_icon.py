@@ -1,4 +1,5 @@
-"""Writes packaging/jobquestai.ico (and .png) from logo.png, or from the skyscraper shapes if that file is missing.
+"""Writes packaging/jobquestai.ico (and .png) from logo.png (the phoenix, drawn by draw_phoenix.py), or from the
+old skyscraper shapes if that file is missing.
 
 One shape list on a 32-unit grid drives both the raster icon and `svg()` (the in-app logo and favicon), so they
 always match. Run directly to write the icon; `python make_icon.py --svg` prints the SVG.
@@ -52,7 +53,7 @@ if __name__ == "__main__":
         print(svg(background="--tile" in sys.argv))
         sys.exit()
     from PIL import Image
-    logo = Path(__file__).with_name("logo.png")          # the quest trophy, drawn by draw_trophy.py
+    logo = Path(__file__).with_name("logo.png")          # the phoenix emblem, drawn by draw_phoenix.py
     img = Image.open(logo).convert("RGBA") if logo.exists() else raster()
     out = Path(__file__).with_name("jobquestai.ico")
     img.save(out, sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])

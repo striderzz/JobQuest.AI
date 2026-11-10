@@ -132,6 +132,41 @@ class AILayer(unittest.TestCase):
         self.assertEqual(call["reasoning_effort"], "low")
         self.assertIn("CANDIDATE", call["messages"][0]["content"])      # candidate first, so it caches
 
+    def test_cut_off_reply_retries_with_more_room(self):
+        """A thinking model that spends its whole allowance gets more room and less thinking, and the lost
+        tokens are still counted, including thinking that some providers leave out of completion_tokens."""
+        import openai
+        client = fake_ai(ASSESSMENT)
+        comp = client.client.chat.completions
+        real_parse, tries = comp.parse, []
+
+        def parse(**kw):
+            tries.append(dict(kw))
+            if len(tries) == 1:
+                cut = SimpleNamespace(usage=SimpleNamespace(prompt_tokens=2275, completion_tokens=87, total_tokens=4759))
+                raise openai.LengthFinishReasonError(completion=cut)
+            return real_parse(**kw)
+        comp.parse = parse
+        out = client.assess("CANDIDATE\n...", {"title": "SDE", "company": "Acme", "location": "Pune", "description": "Java"})
+        self.assertEqual(out["fit_score"], 88)
+        self.assertEqual(len(tries), 2)
+        self.assertEqual(tries[1]["max_completion_tokens"], 2 * tries[0]["max_completion_tokens"])
+        self.assertEqual(tries[1]["reasoning_effort"], "low")
+        self.assertEqual(client.tokens_in, 2275 + 1000)
+        self.assertEqual(client.tokens_out, (4759 - 2275) + 200)
+
+    def test_cut_off_every_time_is_a_clear_error(self):
+        import openai
+        client = fake_ai(ASSESSMENT)
+        cut = SimpleNamespace(usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15))
+
+        def parse(**kw):
+            raise openai.LengthFinishReasonError(completion=cut)
+        client.client.chat.completions.parse = parse
+        with self.assertRaises(ai.AIError) as ctx:
+            client.assess("CANDIDATE", {"title": "SDE", "company": "Acme", "location": "Pune", "description": "Java"})
+        self.assertIn("ran out of room", str(ctx.exception))
+
     def test_rejection_rules(self):
         self.assertFalse(ai.rejected(ASSESSMENT))
         self.assertTrue(ai.rejected(dict(ASSESSMENT, years_required=3)))

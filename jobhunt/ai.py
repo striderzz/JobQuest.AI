@@ -14,6 +14,9 @@ from pydantic import BaseModel, Field
 from . import settings
 
 
+MAX_ROOM = 16000          # most output tokens a retry may ask for after a reply was cut off
+
+
 class AIError(Exception):
     pass
 
@@ -110,8 +113,11 @@ class AI:
     def _used(self, r, feature, started):
         """Count one response's tokens for this run, and log it for the usage dashboard."""
         from . import llm
-        ti = (r.usage.prompt_tokens or 0) if r.usage else 0
-        to = (r.usage.completion_tokens or 0) if r.usage else 0
+        u = getattr(r, "usage", None)
+        ti = (u.prompt_tokens or 0) if u else 0
+        to = (u.completion_tokens or 0) if u else 0
+        if u and getattr(u, "total_tokens", None):           # some providers leave thinking out of completion_tokens
+            to = max(to, u.total_tokens - ti)
         with self._lock:
             self.tokens_in += ti
             self.tokens_out += to
@@ -134,10 +140,24 @@ class AI:
             kw["reasoning_effort"] = self.effort
         if cache_key:
             kw["prompt_cache_key"] = cache_key
-        for _ in range(3):
+        roomy = 0
+        for _ in range(5):
             try:
                 r = self.client.chat.completions.parse(**kw)
                 break
+            except openai.LengthFinishReasonError as e:
+                # Thinking used up the token allowance before the answer was finished. The tokens are billed,
+                # so count them, then give the model more room and ask it to think less.
+                if getattr(e, "completion", None) is not None:
+                    self._used(e.completion, feature, started)
+                    started = time.monotonic()
+                if roomy >= 2:
+                    raise AIError(f"{self.label} ran out of room before finishing its answer, even with "
+                                  f"{kw['max_completion_tokens']} tokens. Try a different model for this task.") from e
+                roomy += 1
+                kw["max_completion_tokens"] = min(kw["max_completion_tokens"] * 2, MAX_ROOM)
+                if kw.get("reasoning_effort") not in ("minimal", "none"):
+                    kw["reasoning_effort"] = "low"
             except openai.BadRequestError as e:
                 msg = str(e).lower()
                 if "reasoning" in msg and "reasoning_effort" in kw:     # model doesn't take the parameter
@@ -188,6 +208,8 @@ class AI:
             except openai.APIError as e:
                 raise AIError(f"{self.label}: {_short(e)}") from e
             self._used(r, feature, started)
+            if r.choices[0].finish_reason == "length" and max_tokens < MAX_ROOM:
+                max_tokens = min(max_tokens * 2, MAX_ROOM)       # cut off mid-answer: retry with more room
             text = (r.choices[0].message.content or "").strip()
             text = text[text.find("{"):text.rfind("}") + 1] if "{" in text else text
             try:

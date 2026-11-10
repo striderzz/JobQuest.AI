@@ -1,14 +1,14 @@
 <p align="center"><img src="docs/social-preview.png" alt="JobQuest.AI: your AI co-pilot for the job hunt" width="100%"></p>
 
 <p align="center">
-  <a href="../../releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/striderzz/JobQuest.AI?style=for-the-badge&color=f59e0b&labelColor=16181d"></a>
+  <a href="../../releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/striderzz/JobQuest.AI?style=for-the-badge&color=d6262c&labelColor=16181d"></a>
   <img alt="Windows" src="https://img.shields.io/badge/Windows-desktop_app-3987e5?style=for-the-badge&labelColor=16181d">
   <img alt="Python 3.13" src="https://img.shields.io/badge/Python-3.13-199e70?style=for-the-badge&labelColor=16181d">
   <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-SQLite-9085e9?style=for-the-badge&labelColor=16181d">
   <img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-8d9aa8?style=for-the-badge&labelColor=16181d">
 </p>
 
-<h1 align="center">JobQuest.AI</h1>
+<p align="center"><img src="docs/logo.png" alt="JobQuest.AI" width="420"></p>
 
 <p align="center"><b>Turn the job hunt into a quest you win.</b><br>
 Finds entry-level jobs in India, ranks them against your resume with the AI models you choose, tracks every application, and handles the outreach around them.</p>
@@ -50,7 +50,7 @@ Finds entry-level jobs in India, ranks them against your resume with the AI mode
 
 ![Settings](docs/screenshots/settings.png)
 ![Jobs, midnight](docs/screenshots/jobs-dark.png)
-![Dashboard, forest](docs/screenshots/dashboard-dark.png)
+![Dashboard, slate](docs/screenshots/dashboard-dark.png)
 ![Tracker, ocean](docs/screenshots/tracker-ocean.png)
 </details>
 
@@ -192,7 +192,7 @@ flowchart LR
 
 ## Run it
 
-**Install on Windows (recommended):** download **`JobQuestAI-Setup-4.0.0.exe`** from the
+**Install on Windows (recommended):** download **`JobQuestAI-Setup-4.0.1.exe`** from the
 [latest release](../../releases/latest) and run it.
 - It installs for your user only, with no admin prompt, into `%LOCALAPPDATA%\Programs\JobQuest.AI`.
 - It adds Start menu and optional Desktop shortcuts. Searches run only when you click, so it schedules nothing.
@@ -232,7 +232,8 @@ Other commands: `build_exe.cmd` builds the exe. `refresh.cmd` runs one search fr
 JobQuest.AI is a FastAPI web app packaged as a native-feeling Windows program.
 
 **1. One-file exe (PyInstaller).** `build_exe.cmd` runs these steps:
-- `packaging/make_icon.py` turns the quest trophy logo (`logo.png`, drawn by `draw_trophy.py`) into `jobquestai.ico` and the in-app icon.
+- `packaging/make_icon.py` turns the phoenix emblem (`logo.png`, drawn by `draw_phoenix.py`, which also writes the vector
+  `emblem.svg` and `logo.svg`) into `jobquestai.ico` and the in-app icon.
 - `python -m PyInstaller --onefile --noconsole --name JobQuestAI` bundles the Python runtime, FastAPI, Uvicorn and every
   library into a single `JobQuestAI.exe` (about 38 MB).
 - `--add-data` packs the web UI (`jobhunt/static`) and `config.toml` inside it, and `--collect-submodules uvicorn` keeps the
